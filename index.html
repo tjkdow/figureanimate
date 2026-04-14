@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Rig: Proximal Pivot Fixed</title>
+    <title>3D Rig: Zero Offset Fixed</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
-        #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.9); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
+        #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
         #bone-label { font-size: 16px; font-weight: bold; color: #00ffff; display: block; margin-bottom: 10px; }
         label { display: block; font-size: 10px; color: #888; margin-top: 8px; text-transform: uppercase; }
-        input[type=range] { width: 100%; }
+        input[type=range] { width: 100%; cursor: pointer; }
         button { width: 100%; padding: 8px; margin-top: 5px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; font-size: 11px; }
         #timeline { position: absolute; bottom: 0; width: 100%; height: 90px; background: #0a0a0a; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 1px solid #333; }
         .frame { min-width: 50px; height: 50px; background: #222; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; flex-shrink: 0; border: 1px solid #444; }
@@ -25,7 +25,6 @@
     <label>Rotation Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01">
     <button onclick="mirrorSelected()" style="background:#6a1b9a; margin-top:15px;">MIRROR L/R</button>
     <button onclick="addFrame()" style="background:#2e7d32">+ NEW FRAME</button>
-    <button onclick="copyFrame()">CLONE FRAME</button>
     <button id="playBtn" onclick="togglePlay()" style="background:#1565c0">PLAY</button>
 </div>
 
@@ -39,27 +38,26 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
 
-    // Length is the length of THIS bone. Dir is the direction it points from its parent.
     const config = {
         "Root":      { p: null,    l: 0,   d: [0,0,0] },
-        "Pelvis_L":  { p: "Root",  l: 0.4, d: [-1,0,0] },
-        "Pelvis_R":  { p: "Root",  l: 0.4, d: [1,0,0] },
-        "Spine":     { p: "Root",  l: 1.0, d: [0,1,0] },
-        "Chest":     { p: "Spine", l: 0.8, d: [0,1,0] },
-        "Neck":      { p: "Chest", l: 0.3, d: [0,1,0] },
-        "Head":      { p: "Neck",  l: 0.5, d: [0,1,0] },
-        "L_Arm":     { p: "Chest", l: 0.8, d: [-1,0.2,0] },
-        "L_Forearm": { p: "L_Arm", l: 0.7, d: [-1,0,0] },
+        "Pelvis_L":  { p: "Root",  l: 0.3, d: [-1,0,0] },
+        "Pelvis_R":  { p: "Root",  l: 0.3, d: [1,0,0] },
+        "Spine":     { p: "Root",  l: 0.8, d: [0,1,0] },
+        "Chest":     { p: "Spine", l: 0.7, d: [0,1,0] },
+        "Neck":      { p: "Chest", l: 0.2, d: [0,1,0] },
+        "Head":      { p: "Neck",  l: 0.4, d: [0,1,0] },
+        "L_Arm":     { p: "Chest", l: 0.7, d: [-1,0,0] },
+        "L_Forearm": { p: "L_Arm", l: 0.6, d: [-1,0,0] },
         "L_Hand":    { p: "L_Forearm", l: 0.3, d: [-1,0,0] },
-        "R_Arm":     { p: "Chest", l: 0.8, d: [1,0.2,0] },
-        "R_Forearm": { p: "R_Arm", l: 0.7, d: [1,0,0] },
+        "R_Arm":     { p: "Chest", l: 0.7, d: [1,0,0] },
+        "R_Forearm": { p: "R_Arm", l: 0.6, d: [1,0,0] },
         "R_Hand":    { p: "R_Forearm", l: 0.3, d: [1,0,0] },
-        "L_Thigh":   { p: "Pelvis_L", l: 1.2, d: [0,-1,0] },
-        "L_Calf":    { p: "L_Thigh",  l: 1.0, d: [0,-1,0] },
-        "L_Foot":    { p: "L_Calf",   l: 0.4, d: [0,0,1] },
-        "R_Thigh":   { p: "Pelvis_R", l: 1.2, d: [0,-1,0] },
-        "R_Calf":    { p: "R_Thigh",  l: 1.0, d: [0,-1,0] },
-        "R_Foot":    { p: "R_Calf",   l: 0.4, d: [0,0,1] }
+        "L_Thigh":   { p: "Pelvis_L", l: 1.0, d: [0,-1,0] },
+        "L_Calf":    { p: "L_Thigh",  l: 0.9, d: [0,-1,0] },
+        "L_Foot":    { p: "L_Calf",   l: 0.3, d: [0,0,1] },
+        "R_Thigh":   { p: "Pelvis_R", l: 1.0, d: [0,-1,0] },
+        "R_Calf":    { p: "R_Thigh",  l: 0.9, d: [0,-1,0] },
+        "R_Foot":    { p: "R_Calf",   l: 0.3, d: [0,0,1] }
     };
 
     let frames = [];
@@ -72,45 +70,40 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(0, 1, 7);
+    camera.position.set(0, 1, 6);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
     new OrbitControls(camera, renderer.domElement);
     scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
 
-    // REBUILT BUILDER
     Object.keys(config).forEach(name => {
         const pivot = new THREE.Group();
         pivot.name = name;
         pivots[name] = pivot;
 
-        // Joint Visual
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color: 0x00ffff}));
         pivot.add(dot);
 
         if (config[name].p) {
             const parentPivot = pivots[config[name].p];
-            const parentData = config[parentPivot.name];
+            const pData = config[parentPivot.name];
             
-            // Move this pivot to the end of the PARENT'S bone
-            // We use the parent's direction and length to find where this joint should live
-            if (parentData) {
-                pivot.position.set(parentData.d[0]*parentData.l, parentData.d[1]*parentData.l, parentData.d[2]*parentData.l);
-            }
+            // Move pivot to the end of the parent bone
+            pivot.position.set(pData.d[0] * pData.l, pData.d[1] * pData.l, pData.d[2] * pData.l);
             parentPivot.add(pivot);
 
-            // Create the visible bone stick GROWING FORWARD from this pivot
+            // Create bone mesh
             const l = config[name].l;
             const d = config[name].d;
             if (l > 0) {
                 const geo = new THREE.CylinderGeometry(0.02, 0.02, l, 8);
                 const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color: 0xffffff}));
                 
-                // Position mesh center so it starts at (0,0,0) and extends toward direction
+                // Position so start is at pivot (0,0,0)
                 mesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
                 
-                // Align rotation
+                // Orientation
                 if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
                 else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
                 
@@ -118,14 +111,13 @@
                 mesh.userData.boneName = name;
                 clickables.push(mesh);
 
-                // Arrow Helper in the middle of the bone
-                const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(d[0]*l/2, d[1]*l/2, d[2]*l/2), 0.5, 0xffa500);
+                const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(d[0]*l/2, d[1]*l/2, d[2]*l/2), 0.4, 0xffa500);
                 arrow.name = "arrow";
                 arrow.visible = false;
                 pivot.add(arrow);
             }
         } else {
-            scene.add(pivot); // Root
+            scene.add(pivot);
             dot.userData.boneName = name;
             clickables.push(dot);
         }
@@ -143,6 +135,7 @@
         let other = selectedBone.includes("L_") ? selectedBone.replace("L_", "R_") : selectedBone.replace("R_", "L_");
         if(pivots[other]) {
             const cur = frames[currentIdx][selectedBone];
+            // Mirror logic: Reverse the Y and Z rotation for symmetry
             frames[currentIdx][other] = [cur[0], -cur[1], -cur[2]];
             updateUI();
         }
@@ -151,18 +144,13 @@
     function updateUI() {
         const pose = frames[currentIdx];
         document.getElementById('bone-label').innerText = selectedBone;
-        ['rotX', 'rotY', 'rotZ'].forEach((id, i) => {
-            const input = document.getElementById(id);
-            input.value = pose[selectedBone][i];
-        });
+        ['rotX', 'rotY', 'rotZ'].forEach((id, i) => document.getElementById(id).value = pose[selectedBone][i]);
 
         Object.keys(pivots).forEach(name => {
             const r = pose[name];
             pivots[name].rotation.set(r[0], r[1], r[2]);
             pivots[name].traverse(c => {
-                if(c.isMesh && c.geometry.type === "CylinderGeometry") {
-                    c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
-                }
+                if(c.isMesh && c.geometry.type === "CylinderGeometry") c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
                 if(c.name === "arrow") c.visible = (name === selectedBone);
             });
         });
@@ -181,12 +169,6 @@
         });
     }
 
-    window.addFrame = addFrame;
-    window.copyFrame = () => {
-        frames.push(JSON.parse(JSON.stringify(frames[currentIdx])));
-        currentIdx = frames.length - 1;
-        updateUI();
-    };
     window.togglePlay = () => {
         isPlaying = !isPlaying;
         document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY";
