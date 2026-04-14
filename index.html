@@ -3,38 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pro Skeleton Rig</title>
+    <title>3D Rig: Pro Animator</title>
     <style>
         body { margin: 0; background: #121212; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
-        #ui { position: absolute; right: 10px; top: 10px; width: 240px; background: rgba(25, 25, 25, 0.95); padding: 15px; border-radius: 12px; border: 1px solid #444; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        h3 { margin: 0 0 5px 0; color: #00ffff; font-size: 14px; letter-spacing: 1px; }
-        #bone-label { font-size: 18px; font-weight: bold; margin-bottom: 15px; display: block; }
-        label { display: block; font-size: 11px; color: #888; margin-top: 10px; text-transform: uppercase; }
-        input[type=range] { width: 100%; height: 6px; border-radius: 5px; background: #444; outline: none; -webkit-appearance: none; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: #00ffff; border-radius: 50%; cursor: pointer; }
-        button { width: 100%; padding: 10px; margin-top: 8px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 6px; font-weight: 600; transition: 0.2s; }
-        button:hover { background: #444; border-color: #00ffff; }
-        #timeline { position: absolute; bottom: 0; width: 100%; height: 90px; background: #181818; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 2px solid #333; }
-        .frame { min-width: 50px; height: 50px; background: #2a2a2a; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; flex-shrink: 0; border: 2px solid transparent; font-weight: bold; }
-        .frame.active { border-color: #00ffff; background: #004444; color: #00ffff; }
+        #ui { position: absolute; right: 10px; top: 10px; width: 240px; background: rgba(25, 25, 25, 0.95); padding: 15px; border-radius: 12px; border: 1px solid #444; z-index: 100; }
+        h3 { margin: 0; color: #00ffff; font-size: 14px; }
+        #bone-label { font-size: 18px; font-weight: bold; margin-bottom: 10px; display: block; color: #fff; }
+        label { display: block; font-size: 10px; color: #888; margin-top: 8px; text-transform: uppercase; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        button { width: 100%; padding: 8px; margin-top: 6px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 6px; font-size: 11px; font-weight: bold; }
+        button:hover { border-color: #00ffff; }
+        
+        /* Timeline Styles */
+        #timeline { position: absolute; bottom: 0; width: 100%; height: 100px; background: #181818; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 2px solid #333; }
+        .frame { 
+            min-width: 60px; height: 60px; background: #2a2a2a; margin-right: 12px; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            border-radius: 8px; cursor: grab; flex-shrink: 0; border: 2px solid transparent; 
+            user-select: none; position: relative;
+        }
+        .frame.active { border-color: #00ffff; background: #004444; }
+        .frame.dragging { opacity: 0.5; border: 2px dashed #00ffff; }
+        .frame span { font-size: 10px; color: #aaa; margin-top: 4px; }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <label>Active Bone</label>
+    <label>Selected Joint</label>
     <span id="bone-label">Root</span>
     <label>Rotation X</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01">
     <label>Rotation Y</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01">
     <label>Rotation Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01">
-    <div style="margin-top: 20px;">
-        <button onclick="addFrame()" style="background:#006644; border:none;">+ ADD FRAME</button>
+    
+    <div style="margin-top: 15px;">
+        <button onclick="mirrorSelected()" style="background: #a333ff; border: none; margin-bottom: 10px;">MIRROR L <-> R</button>
+        <button onclick="addFrame()" style="background:#006644; border:none;">+ NEW FRAME</button>
         <button onclick="copyFrame()">CLONE CURRENT</button>
-        <button id="playBtn" onclick="togglePlay()" style="background:#0055aa; border:none;">PLAY ANIM</button>
+        <button id="playBtn" onclick="togglePlay()" style="background:#0055aa; border:none;">PLAY ANIMATION</button>
     </div>
 </div>
 
-<div id="timeline"></div>
+<div id="timeline" id="timeline-container"></div>
 
 <script type="importmap">
     { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "controls": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js" } }
@@ -72,7 +82,9 @@
     let isPlaying = false;
     const bones = {}; 
     const clickables = [];
+    let draggedItemIdx = null;
 
+    // --- THREE.JS SCENE ---
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x121212);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -81,23 +93,18 @@
     document.body.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     camera.position.set(0, 1, 8);
+    scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
 
-    const grid = new THREE.GridHelper(10, 10, 0x333333, 0x222222);
-    scene.add(grid);
-
+    // Build Bones
     Object.keys(skeletonConfig).forEach(name => {
         const group = new THREE.Group();
         group.name = name;
-        
-        // Joint Sphere
         const joint = new THREE.Mesh(new THREE.SphereGeometry(0.08), new THREE.MeshBasicMaterial({color: 0x00ffff}));
         group.add(joint);
-
-        // Arrow
+        
         const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), 0.5, 0xffa500);
         arrow.name = "arrow";
         group.add(arrow);
-
         bones[name] = group;
 
         if (skeletonConfig[name].parent) {
@@ -105,15 +112,13 @@
             const { dir: d, len: l } = skeletonConfig[name];
             group.position.set(d[0]*l, d[1]*l, d[2]*l);
 
-            // BONE MESH (The visible stick)
-            const cylinderGeo = new THREE.CylinderGeometry(0.03, 0.03, l, 8);
-            const boneMaterial = new THREE.MeshBasicMaterial({color: 0xffffff});
-            const boneMesh = new THREE.Mesh(cylinderGeo, boneMaterial);
-            
-            // Align cylinder between joints
+            const cylinderGeo = new THREE.CylinderGeometry(0.03, 0.03, l || 0.1, 8);
+            const boneMesh = new THREE.Mesh(cylinderGeo, new THREE.MeshBasicMaterial({color: 0xffffff}));
             boneMesh.position.set(-d[0]*l/2, -d[1]*l/2, -d[2]*l/2);
+            
+            // Rotation alignment for stick visualization
             if(d[0] !== 0) boneMesh.rotation.z = Math.PI/2;
-            if(d[2] !== 0) boneMesh.rotation.x = Math.PI/2;
+            else if(d[2] !== 0) boneMesh.rotation.x = Math.PI/2;
             
             group.add(boneMesh);
             boneMesh.userData.boneName = name;
@@ -125,6 +130,7 @@
         }
     });
 
+    // --- CORE LOGIC ---
     function addFrame() {
         const f = {};
         Object.keys(skeletonConfig).forEach(n => f[n] = [0,0,0]);
@@ -132,6 +138,19 @@
         currentIdx = frames.length - 1;
         updateUI();
     }
+
+    window.mirrorSelected = () => {
+        let other = "";
+        if(selectedBone.includes("L_")) other = selectedBone.replace("L_", "R_");
+        else if(selectedBone.includes("R_")) other = selectedBone.replace("R_", "L_");
+        
+        if(other && bones[other]) {
+            const currentPose = frames[currentIdx][selectedBone];
+            // Mirror logic: X and Z flip sign for symmetry, Y stays same
+            frames[currentIdx][other] = [currentPose[0], -currentPose[1], -currentPose[2]];
+            updateUI();
+        }
+    };
 
     function updateUI() {
         const pose = frames[currentIdx];
@@ -141,30 +160,43 @@
         Object.keys(bones).forEach(name => {
             const rot = pose[name];
             bones[name].rotation.set(rot[0], rot[1], rot[2]);
-            
-            // Highlight
-            bones[name].traverse(child => {
-                if (child.isMesh && child.geometry.type === "CylinderGeometry") {
-                    child.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
-                }
-                if (child.name === "arrow") child.visible = (name === selectedBone);
+            bones[name].traverse(c => {
+                if(c.isMesh && c.geometry.type === "CylinderGeometry") c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
+                if(c.name === "arrow") c.visible = (name === selectedBone);
             });
         });
         renderTimeline();
     }
 
+    // --- DRAGGABLE TIMELINE ---
     function renderTimeline() {
         const tl = document.getElementById('timeline');
         tl.innerHTML = '';
         frames.forEach((f, i) => {
             const div = document.createElement('div');
             div.className = `frame ${i === currentIdx ? 'active' : ''}`;
-            div.innerText = i + 1;
+            div.draggable = true;
+            div.innerHTML = `<b>${i + 1}</b><span>Pose</span>`;
+            
             div.onclick = () => { currentIdx = i; updateUI(); };
+            
+            // Drag Events
+            div.addEventListener('dragstart', () => { draggedItemIdx = i; div.classList.add('dragging'); });
+            div.addEventListener('dragend', () => { div.classList.remove('dragging'); });
+            div.addEventListener('dragover', e => e.preventDefault());
+            div.addEventListener('drop', () => {
+                if(draggedItemIdx !== null && draggedItemIdx !== i) {
+                    const item = frames.splice(draggedItemIdx, 1)[0];
+                    frames.splice(i, 0, item);
+                    currentIdx = i;
+                    updateUI();
+                }
+            });
             tl.appendChild(div);
         });
     }
 
+    // --- APP CONTROLS ---
     window.addFrame = addFrame;
     window.copyFrame = () => {
         frames.push(JSON.parse(JSON.stringify(frames[currentIdx])));
@@ -173,10 +205,9 @@
     };
     window.togglePlay = () => {
         isPlaying = !isPlaying;
-        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY ANIM";
+        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY ANIMATION";
         if(isPlaying) playLoop();
     };
-
     function playLoop() {
         if(!isPlaying) return;
         currentIdx = (currentIdx + 1) % frames.length;
