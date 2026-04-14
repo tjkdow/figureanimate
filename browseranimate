@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>3D Browser Rig Editor</title>
+    <style>
+        body { margin: 0; background: #181818; color: white; font-family: sans-serif; overflow: hidden; }
+        #ui-layer { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+        .panel { background: rgba(37, 37, 38, 0.9); padding: 15px; border-radius: 8px; pointer-events: auto; width: 200px; }
+        h3 { margin: 0 0 10px 0; color: #00ffff; font-size: 14px; }
+        label { display: block; font-size: 10px; margin-top: 5px; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        #timeline { position: absolute; bottom: 0; width: 100%; height: 80px; background: #111; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; }
+        .frame-box { min-width: 40px; height: 40px; background: #444; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; }
+        .active-frame { background: #007acc; border: 2px solid white; }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <div class="panel">
+        <h3 id="bone-name">Selected: Root</h3>
+        <label>Rotation X</label>
+        <input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+        <label>Rotation Y</label>
+        <input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+        <label>Rotation Z</label>
+        <input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+        <button onclick="addFrame()" style="margin-top:10px; width:100%;">+ New Frame</button>
+    </div>
+</div>
+
+<div id="timeline"></div>
+
+<script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "controls": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js", "transform": "https://unpkg.com/three@0.160.0/examples/jsm/controls/TransformControls.js" } }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'controls';
+    import { TransformControls } from 'transform';
+
+    // --- SETUP SCENE ---
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x181818);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    const transform = new TransformControls(camera, renderer.domElement);
+    scene.add(transform);
+
+    // --- SKELETON DATA ---
+    const skeletonConfig = {
+        "Root": { parent: null, len: 0 },
+        "Spine": { parent: "Root", len: 2, pos: [0, 2, 0] },
+        "L_Arm": { parent: "Spine", len: 2, pos: [-1, 1.5, 0] },
+        "R_Arm": { parent: "Spine", len: 2, pos: [1, 1.5, 0] }
+    };
+
+    const bones = {};
+    const group = new THREE.Group();
+    scene.add(group);
+
+    // Create Visual Bones
+    Object.keys(skeletonConfig).forEach(name => {
+        const geo = new THREE.SphereGeometry(0.1);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.name = name;
+        
+        const config = skeletonConfig[name];
+        if (config.pos) mesh.position.set(...config.pos);
+        
+        bones[name] = mesh;
+        group.add(mesh);
+    });
+
+    camera.position.z = 5;
+
+    // --- INTERACTION ---
+    transform.addEventListener('dragging-changed', (e) => {
+        controls.enabled = !e.value;
+    });
+
+    window.addEventListener('mousedown', (e) => {
+        const mouse = new THREE.Vector2(
+            (e.clientX / window.innerWidth) * 2 - 1,
+            -(e.clientY / window.innerHeight) * 2 + 1
+        );
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(group.children);
+        
+        if (intersects.length > 0) {
+            const selected = intersects[0].object;
+            document.getElementById('bone-name').innerText = "Selected: " + selected.name;
+            transform.attach(selected);
+        }
+    });
+
+    // --- RENDER LOOP ---
+    function animate() {
+        requestAnimationFrame(animate);
+        renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+</script>
+</body>
+</html>
