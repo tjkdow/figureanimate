@@ -3,118 +3,199 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Browser Rig Editor</title>
+    <title>3D Pro Rig Editor</title>
     <style>
-        body { margin: 0; background: #181818; color: white; font-family: sans-serif; overflow: hidden; }
-        #ui-layer { position: absolute; top: 10px; left: 10px; pointer-events: none; }
-        .panel { background: rgba(37, 37, 38, 0.9); padding: 15px; border-radius: 8px; pointer-events: auto; width: 200px; }
-        h3 { margin: 0 0 10px 0; color: #00ffff; font-size: 14px; }
-        label { display: block; font-size: 10px; margin-top: 5px; }
-        input[type=range] { width: 100%; cursor: pointer; }
-        #timeline { position: absolute; bottom: 0; width: 100%; height: 80px; background: #111; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; }
-        .frame-box { min-width: 40px; height: 40px; background: #444; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; }
-        .active-frame { background: #007acc; border: 2px solid white; }
+        body { margin: 0; background: #181818; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(37, 37, 38, 0.9); padding: 15px; border-radius: 8px; border: 1px solid #444; pointer-events: auto; }
+        h3 { margin: 0 0 10px 0; color: #00ffff; font-size: 14px; text-transform: uppercase; }
+        .control-group { margin-bottom: 12px; }
+        label { display: block; font-size: 11px; color: #aaa; margin-bottom: 4px; }
+        input[type=range] { width: 100%; }
+        button { width: 100%; padding: 8px; margin-top: 5px; cursor: pointer; border: none; border-radius: 4px; font-weight: bold; }
+        .btn-new { background: #3e3e42; color: white; }
+        .btn-copy { background: #4CAF50; color: white; }
+        .btn-mirror { background: #00aba9; color: white; }
+        .btn-play { background: #007acc; color: white; margin-top: 15px; }
+        #timeline { position: absolute; bottom: 0; width: 100%; height: 90px; background: #111; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; border-top: 1px solid #333; }
+        .frame { min-width: 50px; height: 50px; background: #333; margin-right: 10px; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; border: 2px solid transparent; font-size: 12px; }
+        .frame.active { border-color: #007acc; background: #444; }
     </style>
 </head>
 <body>
 
-<div id="ui-layer">
-    <div class="panel">
-        <h3 id="bone-name">Selected: Root</h3>
-        <label>Rotation X</label>
-        <input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-        <label>Rotation Y</label>
-        <input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
-        <label>Rotation Z</label>
-        <input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
-        <button onclick="addFrame()" style="margin-top:10px; width:100%;">+ New Frame</button>
+<div id="ui">
+    <h3 id="bone-label">Root</h3>
+    <div class="control-group">
+        <label>Rotation X</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+        <label>Rotation Y</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+        <label>Rotation Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
     </div>
+    <button class="btn-new" onclick="addFrame()">+ NEW EMPTY</button>
+    <button class="btn-copy" onclick="copyFrame()">COPY CURRENT</button>
+    <button class="btn-mirror" onclick="mirrorSelected()">MIRROR BONE</button>
+    <button class="btn-play" id="playBtn" onclick="togglePlay()">PLAY</button>
 </div>
 
-<div id="timeline"></div>
+<div id="timeline" id="timeline-container"></div>
 
 <script type="importmap">
-    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "controls": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js", "transform": "https://unpkg.com/three@0.160.0/examples/jsm/controls/TransformControls.js" } }
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "controls": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js" } }
 </script>
 
 <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
-    import { TransformControls } from 'transform';
 
-    // --- SETUP SCENE ---
+    // --- SKELETON CONFIG (1:1 with Python) ---
+    const config = {
+        "Root":      { parent: null, len: 0, dir: [0,0,0] },
+        "Pelvis_L":  { parent: "Root", len: 0.5, dir: [-1,0,0] },
+        "Pelvis_R":  { parent: "Root", len: 0.5, dir: [1,0,0] },
+        "Spine":     { parent: "Root", len: 1.2, dir: [0,1,0] },
+        "Chest":     { parent: "Spine", len: 1.0, dir: [0,1,0] },
+        "L_Arm":     { parent: "Chest", len: 1.2, dir: [-1,0,0] },
+        "L_Forearm": { parent: "L_Arm", len: 1.0, dir: [-1,0,0] },
+        "R_Arm":     { parent: "Chest", len: 1.2, dir: [1,0,0] },
+        "R_Forearm": { parent: "R_Arm", len: 1.0, dir: [1,0,0] },
+        "L_Thigh":   { parent: "Pelvis_L", len: 1.5, dir: [0,-1,0] },
+        "L_Calf":    { parent: "L_Thigh", len: 1.2, dir: [0,-1,0] },
+        "R_Thigh":   { parent: "Pelvis_R", len: 1.5, dir: [0,-1,0] },
+        "R_Calf":    { parent: "R_Thigh", len: 1.2, dir: [0,-1,0] }
+    };
+
+    // --- STATE ---
+    let frames = [];
+    let currentIdx = 0;
+    let selectedBone = "Root";
+    let isPlaying = false;
+    const bones = {};
+    const helpers = {};
+
+    // --- THREE.JS SETUP ---
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x181818);
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-
     const controls = new OrbitControls(camera, renderer.domElement);
-    const transform = new TransformControls(camera, renderer.domElement);
-    scene.add(transform);
+    camera.position.set(0, 2, 8);
 
-    // --- SKELETON DATA ---
-    const skeletonConfig = {
-        "Root": { parent: null, len: 0 },
-        "Spine": { parent: "Root", len: 2, pos: [0, 2, 0] },
-        "L_Arm": { parent: "Spine", len: 2, pos: [-1, 1.5, 0] },
-        "R_Arm": { parent: "Spine", len: 2, pos: [1, 1.5, 0] }
-    };
-
-    const bones = {};
-    const group = new THREE.Group();
-    scene.add(group);
-
-    // Create Visual Bones
-    Object.keys(skeletonConfig).forEach(name => {
-        const geo = new THREE.SphereGeometry(0.1);
-        const mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.name = name;
+    // Build Hierarchy
+    Object.keys(config).forEach(name => {
+        const group = new THREE.Group();
+        const pivot = new THREE.Mesh(new THREE.SphereGeometry(0.08), new THREE.MeshBasicMaterial({color: 0xffffff}));
+        group.add(pivot);
         
-        const config = skeletonConfig[name];
-        if (config.pos) mesh.position.set(...config.pos);
-        
-        bones[name] = mesh;
-        group.add(mesh);
-    });
+        // Faithful "Normal" Arrow (Orange)
+        const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), 0.6, 0xffa500);
+        group.add(arrow);
+        helpers[name] = arrow;
+        arrow.visible = false;
 
-    camera.position.z = 5;
-
-    // --- INTERACTION ---
-    transform.addEventListener('dragging-changed', (e) => {
-        controls.enabled = !e.value;
-    });
-
-    window.addEventListener('mousedown', (e) => {
-        const mouse = new THREE.Vector2(
-            (e.clientX / window.innerWidth) * 2 - 1,
-            -(e.clientY / window.innerHeight) * 2 + 1
-        );
-        const raycaster = new THREE.Raycaster();
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(group.children);
-        
-        if (intersects.length > 0) {
-            const selected = intersects[0].object;
-            document.getElementById('bone-name').innerText = "Selected: " + selected.name;
-            transform.attach(selected);
+        bones[name] = group;
+        if (config[name].parent) {
+            bones[config[name].parent].add(group);
+            group.position.set(config[name].dir[0]*config[name].len, config[name].dir[1]*config[name].len, config[name].dir[2]*config[name].len);
+        } else {
+            scene.add(group);
         }
     });
 
-    // --- RENDER LOOP ---
-    function animate() {
-        requestAnimationFrame(animate);
-        renderer.render(scene, camera);
+    // --- CORE FUNCTIONS ---
+    function initFrames() {
+        const empty = {};
+        Object.keys(config).forEach(n => empty[n] = [0,0,0]);
+        frames.push(empty);
+        updateUI();
     }
-    animate();
 
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+    function updateUI() {
+        const pose = frames[currentIdx];
+        document.getElementById('bone-label').innerText = selectedBone;
+        document.getElementById('rotX').value = pose[selectedBone][0];
+        document.getElementById('rotY').value = pose[selectedBone][1];
+        document.getElementById('rotZ').value = pose[selectedBone][2];
+        
+        // Update bone visual rotations
+        Object.keys(bones).forEach(name => {
+            bones[name].rotation.set(pose[name][0], pose[name][1], pose[name][2]);
+            helpers[name].visible = (name === selectedBone);
+        });
+
+        renderTimeline();
+    }
+
+    function renderTimeline() {
+        const container = document.getElementById('timeline');
+        container.innerHTML = '';
+        frames.forEach((f, i) => {
+            const div = document.createElement('div');
+            div.className = `frame ${i === currentIdx ? 'active' : ''}`;
+            div.innerText = i;
+            div.onclick = () => { currentIdx = i; updateUI(); };
+            container.appendChild(div);
+        });
+    }
+
+    // Window Globals for Buttons
+    window.addFrame = () => {
+        const empty = {};
+        Object.keys(config).forEach(n => empty[n] = [0,0,0]);
+        frames.push(empty);
+        currentIdx = frames.length - 1;
+        updateUI();
+    };
+
+    window.copyFrame = () => {
+        frames.push(JSON.parse(JSON.stringify(frames[currentIdx])));
+        currentIdx = frames.length - 1;
+        updateUI();
+    };
+
+    window.togglePlay = () => {
+        isPlaying = !isPlaying;
+        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY";
+        if(isPlaying) playLoop();
+    };
+
+    function playLoop() {
+        if(!isPlaying) return;
+        currentIdx = (currentIdx + 1) % frames.length;
+        updateUI();
+        setTimeout(playLoop, 200);
+    }
+
+    // Input Handling
+    ['rotX', 'rotY', 'rotZ'].forEach((id, axisIdx) => {
+        document.getElementById(id).addEventListener('input', (e) => {
+            frames[currentIdx][selectedBone][axisIdx] = parseFloat(e.target.value);
+            updateUI();
+        });
     });
+
+    // Click to Select Bone
+    window.addEventListener('mousedown', (e) => {
+        const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(scene.children, true);
+        if(intersects.length > 0) {
+            let obj = intersects[0].object;
+            while(obj.parent && !bones[obj.parent.name]) { // Find the group name
+                 if(Object.keys(bones).includes(obj.name)) break;
+                 obj = obj.parent;
+            }
+            if(bones[obj.name]) {
+                selectedBone = obj.name;
+                updateUI();
+            }
+        }
+    });
+
+    initFrames();
+    function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+    animate();
 </script>
 </body>
 </html>
