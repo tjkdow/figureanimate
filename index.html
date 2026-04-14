@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Rig: Final Fixed Hierarchy</title>
+    <title>3D Rig: Proximal Pivot Fixed</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.9); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -12,7 +12,7 @@
         input[type=range] { width: 100%; }
         button { width: 100%; padding: 8px; margin-top: 5px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; font-size: 11px; }
         #timeline { position: absolute; bottom: 0; width: 100%; height: 90px; background: #0a0a0a; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 1px solid #333; }
-        .frame { min-width: 50px; height: 50px; background: #222; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: grab; flex-shrink: 0; border: 1px solid #444; }
+        .frame { min-width: 50px; height: 50px; background: #222; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; flex-shrink: 0; border: 1px solid #444; }
         .frame.active { border-color: #00ffff; background: #003333; }
     </style>
 </head>
@@ -39,6 +39,7 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
 
+    // Length is the length of THIS bone. Dir is the direction it points from its parent.
     const config = {
         "Root":      { p: null,    l: 0,   d: [0,0,0] },
         "Pelvis_L":  { p: "Root",  l: 0.4, d: [-1,0,0] },
@@ -47,10 +48,10 @@
         "Chest":     { p: "Spine", l: 0.8, d: [0,1,0] },
         "Neck":      { p: "Chest", l: 0.3, d: [0,1,0] },
         "Head":      { p: "Neck",  l: 0.5, d: [0,1,0] },
-        "L_Arm":     { p: "Chest", l: 0.8, d: [-1,0,0] },
+        "L_Arm":     { p: "Chest", l: 0.8, d: [-1,0.2,0] },
         "L_Forearm": { p: "L_Arm", l: 0.7, d: [-1,0,0] },
         "L_Hand":    { p: "L_Forearm", l: 0.3, d: [-1,0,0] },
-        "R_Arm":     { p: "Chest", l: 0.8, d: [1,0,0] },
+        "R_Arm":     { p: "Chest", l: 0.8, d: [1,0.2,0] },
         "R_Forearm": { p: "R_Arm", l: 0.7, d: [1,0,0] },
         "R_Hand":    { p: "R_Forearm", l: 0.3, d: [1,0,0] },
         "L_Thigh":   { p: "Pelvis_L", l: 1.2, d: [0,-1,0] },
@@ -78,48 +79,51 @@
     new OrbitControls(camera, renderer.domElement);
     scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
 
-    // BUILDING LOGIC
+    // REBUILT BUILDER
     Object.keys(config).forEach(name => {
         const pivot = new THREE.Group();
         pivot.name = name;
         pivots[name] = pivot;
 
-        // The Joint Dot
+        // Joint Visual
         const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color: 0x00ffff}));
         pivot.add(dot);
 
-        // Selection Arrow (Middle)
-        const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), 0.5, 0xffa500);
-        arrow.name = "arrow";
-        pivot.add(arrow);
-
         if (config[name].p) {
             const parentPivot = pivots[config[name].p];
-            parentPivot.add(pivot);
+            const parentData = config[parentPivot.name];
             
-            // Move pivot to the tip of the parent's orientation
-            const parentData = config[name]; // This is actually the child's data defining its offset from parent
-            pivot.position.set(parentData.d[0]*parentData.l, parentData.d[1]*parentData.l, parentData.d[2]*parentData.l);
+            // Move this pivot to the end of the PARENT'S bone
+            // We use the parent's direction and length to find where this joint should live
+            if (parentData) {
+                pivot.position.set(parentData.d[0]*parentData.l, parentData.d[1]*parentData.l, parentData.d[2]*parentData.l);
+            }
+            parentPivot.add(pivot);
 
-            // Create the visible bone connecting (0,0,0) to its own tip
-            const boneLen = 0.01; // placeholder for children's length
-            // We find the child's own dimensions for its bone mesh
+            // Create the visible bone stick GROWING FORWARD from this pivot
             const l = config[name].l;
             const d = config[name].d;
-            
-            const geo = new THREE.CylinderGeometry(0.02, 0.02, l, 8);
-            const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color: 0xffffff}));
-            
-            // Offset the mesh so it starts at pivot and goes toward the direction
-            // Since we don't know the next child yet, we use THIS bone's d/l to draw back to parent
-            mesh.position.set(-d[0]*l/2, -d[1]*l/2, -d[2]*l/2);
-            if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
-            else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
-            
-            pivot.add(mesh);
-            mesh.userData.boneName = name;
-            clickables.push(mesh);
-            arrow.position.set(-d[0]*l/2, -d[1]*l/2, -d[2]*l/2);
+            if (l > 0) {
+                const geo = new THREE.CylinderGeometry(0.02, 0.02, l, 8);
+                const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color: 0xffffff}));
+                
+                // Position mesh center so it starts at (0,0,0) and extends toward direction
+                mesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
+                
+                // Align rotation
+                if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
+                else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
+                
+                pivot.add(mesh);
+                mesh.userData.boneName = name;
+                clickables.push(mesh);
+
+                // Arrow Helper in the middle of the bone
+                const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(d[0]*l/2, d[1]*l/2, d[2]*l/2), 0.5, 0xffa500);
+                arrow.name = "arrow";
+                arrow.visible = false;
+                pivot.add(arrow);
+            }
         } else {
             scene.add(pivot); // Root
             dot.userData.boneName = name;
@@ -147,13 +151,18 @@
     function updateUI() {
         const pose = frames[currentIdx];
         document.getElementById('bone-label').innerText = selectedBone;
-        ['rotX', 'rotY', 'rotZ'].forEach((id, i) => document.getElementById(id).value = pose[selectedBone][i]);
+        ['rotX', 'rotY', 'rotZ'].forEach((id, i) => {
+            const input = document.getElementById(id);
+            input.value = pose[selectedBone][i];
+        });
 
         Object.keys(pivots).forEach(name => {
             const r = pose[name];
             pivots[name].rotation.set(r[0], r[1], r[2]);
             pivots[name].traverse(c => {
-                if(c.isMesh && c.geometry.type === "CylinderGeometry") c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
+                if(c.isMesh && c.geometry.type === "CylinderGeometry") {
+                    c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
+                }
                 if(c.name === "arrow") c.visible = (name === selectedBone);
             });
         });
@@ -166,10 +175,8 @@
         frames.forEach((f, i) => {
             const div = document.createElement('div');
             div.className = `frame ${i === currentIdx ? 'active' : ''}`;
-            div.draggable = true;
             div.innerText = i + 1;
             div.onclick = () => { currentIdx = i; updateUI(); };
-            div.onsort = () => {}; // Drag logic simplified for stability
             tl.appendChild(div);
         });
     }
