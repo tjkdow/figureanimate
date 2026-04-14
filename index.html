@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Rig: Solid Hierarchy</title>
+    <title>3D Rig: Fixed Pivot</title>
     <style>
         body { margin: 0; background: #121212; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 240px; background: rgba(25, 25, 25, 0.95); padding: 15px; border-radius: 12px; border: 1px solid #444; z-index: 100; }
@@ -15,18 +15,16 @@
         #timeline { position: absolute; bottom: 0; width: 100%; height: 100px; background: #181818; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 2px solid #333; }
         .frame { min-width: 60px; height: 60px; background: #2a2a2a; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 8px; cursor: grab; flex-shrink: 0; border: 2px solid transparent; }
         .frame.active { border-color: #00ffff; background: #004444; }
-        .frame.dragging { opacity: 0.5; }
     </style>
 </head>
 <body>
 
 <div id="ui">
-    <label>Joint</label>
+    <label>Selected Joint</label>
     <span id="bone-label">Root</span>
     <label>Rotation X</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01">
     <label>Rotation Y</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01">
     <label>Rotation Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01">
-    
     <div style="margin-top: 15px;">
         <button onclick="mirrorSelected()" style="background: #a333ff; border: none; margin-bottom: 10px;">MIRROR L <-> R</button>
         <button onclick="addFrame()" style="background:#006644; border:none;">+ NEW FRAME</button>
@@ -95,18 +93,31 @@
         pivot.add(dot);
 
         if (skeletonConfig[name].parent) {
-            bones[skeletonConfig[name].parent].add(pivot);
-            const { dir: d, len: l } = skeletonConfig[name];
-            pivot.position.set(d[0]*l, d[1]*l, d[2]*l);
+            // Find parent and attach to it
+            const parentBone = bones[skeletonConfig[name].parent];
+            parentBone.add(pivot);
 
-            // Stick Mesh
+            const { dir: d, len: l } = skeletonConfig[name];
+            
+            // PIVOT POSITION: This moves the joint to the parent's end
+            // We use the parent's direction and length to find where this child starts
+            const pDir = skeletonConfig[name].dir;
+            const pLen = skeletonConfig[name].len;
+            
+            // If we are a child, we need to be offset by our parent's length/direction
+            // But wait, the parent group already contains the child. 
+            // We just need to place the pivot at the parent's tip.
+            const parentInfo = skeletonConfig[name];
+            pivot.position.set(parentInfo.dir[0] * parentInfo.len, parentInfo.dir[1] * parentInfo.len, parentInfo.dir[2] * parentInfo.len);
+
+            // Stick Mesh (The visual bone)
             const cylinderGeo = new THREE.CylinderGeometry(0.03, 0.03, l || 0.1, 8);
             const boneMesh = new THREE.Mesh(cylinderGeo, new THREE.MeshBasicMaterial({color: 0xffffff}));
             
-            // This offset ensures the bone grows BACK towards the parent
-            boneMesh.position.set(-d[0]*l/2, -d[1]*l/2, -d[2]*l/2);
+            // THE FIX: Move the cylinder center so its START is at the pivot (0,0,0)
+            boneMesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
             
-            // Rotate the stick to face parent
+            // Orient the cylinder
             if(d[0] !== 0) boneMesh.rotation.z = Math.PI/2;
             else if(d[2] !== 0) boneMesh.rotation.x = Math.PI/2;
             
@@ -115,14 +126,13 @@
             clickables.push(boneMesh);
 
             // Normal Arrow in MIDDLE of the bone
-            const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(-d[0]*l/2, -d[1]*l/2, -d[2]*l/2), 0.5, 0xffa500);
+            const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(d[0]*l/2, d[1]*l/2, d[2]*l/2), 0.5, 0xffa500);
             arrow.name = "arrow";
             pivot.add(arrow);
         } else {
-            scene.add(pivot);
+            scene.add(pivot); // Root
             dot.userData.boneName = name;
             clickables.push(dot);
-            
             const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), 0.5, 0xffa500);
             arrow.name = "arrow";
             pivot.add(arrow);
@@ -142,8 +152,8 @@
         if(selectedBone.includes("L_")) other = selectedBone.replace("L_", "R_");
         else if(selectedBone.includes("R_")) other = selectedBone.replace("R_", "L_");
         if(other && bones[other]) {
-            const currentPose = frames[currentIdx][selectedBone];
-            frames[currentIdx][other] = [currentPose[0], -currentPose[1], -currentPose[2]];
+            const cur = frames[currentIdx][selectedBone];
+            frames[currentIdx][other] = [cur[0], -cur[1], -cur[2]];
             updateUI();
         }
     };
@@ -173,8 +183,7 @@
             div.draggable = true;
             div.innerText = i + 1;
             div.onclick = () => { currentIdx = i; updateUI(); };
-            div.addEventListener('dragstart', () => { draggedItemIdx = i; div.classList.add('dragging'); });
-            div.addEventListener('dragend', () => div.classList.remove('dragging'));
+            div.addEventListener('dragstart', () => { draggedItemIdx = i; });
             div.addEventListener('dragover', e => e.preventDefault());
             div.addEventListener('drop', () => {
                 if(draggedItemIdx !== null && draggedItemIdx !== i) {
@@ -222,11 +231,6 @@
             selectedBone = intersects[0].object.userData.boneName;
             updateUI();
         }
-    });
-
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
     addFrame();
