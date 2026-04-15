@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Joystick Twist Fix</title>
+    <title>3D Rig: Spherical Rotation Fix</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #refresh-note { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none; }
@@ -26,12 +26,12 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>X - Swing (Front/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Y - Joystick Twist</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Z - Lift (Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Frontal Plane (Swing)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Local Twist (Along Bone)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Transverse Plane (Lift)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
     <div class="btn-group">
-        <button onclick="mirrorPose('R')" style="background:#4a148c; border:none;">COPY R ➔ L</button>
-        <button onclick="mirrorPose('L')" style="background:#4a148c; border:none;">COPY L ➔ R</button>
+        <button onclick="mirrorSide('R', 'L')" style="background:#4a148c; border:none;">COPY R ➔ L</button>
+        <button onclick="mirrorSide('L', 'R')" style="background:#4a148c; border:none;">COPY L ➔ R</button>
     </div>
     <button onclick="addFrame()" style="background:#1b5e20; border:none;">+ NEW FRAME</button>
     <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1; border:none;">PLAY ANIMATION</button>
@@ -49,7 +49,7 @@
 
     const config = {
         "Root":      { p: null,    l: 0,   d: [0,0,0] },
-        "Pelvis_L":  { p: "Root",  l: 0.3, d: [1,0,0] },  // Corrected: R is now char's Right
+        "Pelvis_L":  { p: "Root",  l: 0.3, d: [1,0,0] },
         "Pelvis_R":  { p: "Root",  l: 0.3, d: [-1,0,0] },
         "Spine":     { p: "Root",  l: 0.8, d: [0,1,0] },
         "Chest":     { p: "Spine", l: 0.7, d: [0,1,0] },
@@ -90,8 +90,7 @@
     Object.keys(config).forEach(name => {
         const pivot = new THREE.Group();
         pivot.name = name;
-        // Euler order ZXY makes Y the last transformation, like a screwdriver twist.
-        pivot.rotation.order = 'ZXY'; 
+        pivot.rotation.order = 'YXZ'; // Internal ordering
         pivots[name] = pivot;
         const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color: 0x00ffff}));
         pivot.add(dot);
@@ -122,14 +121,14 @@
         updateApp();
     };
 
-    window.mirrorPose = (side) => {
+    window.mirrorSide = (from, to) => {
         const pose = frames[currentIdx];
-        const targetSide = (side === 'L') ? 'R' : 'L';
         Object.keys(pose).forEach(name => {
-            if(name.includes("_" + side)) {
-                let targetName = name.replace("_" + side, "_" + targetSide);
-                if(pose[targetName]) {
+            if (name.includes(`_${from}`)) {
+                const targetName = name.replace(`_${from}`, `_${to}`);
+                if (pose[targetName]) {
                     const r = pose[name];
+                    // Flipping Y and Z for symmetry across the midline
                     pose[targetName] = [r[0], -r[1], -r[2]];
                 }
             }
@@ -141,11 +140,13 @@
         const pose = frames[currentIdx];
         document.getElementById('bone-label').innerText = selectedBone;
         ['rotX', 'rotY', 'rotZ'].forEach((id, i) => document.getElementById(id).value = pose[selectedBone][i]);
+
         Object.keys(pivots).forEach(name => {
-            const rot = pose[name];
-            pivots[name].rotation.set(rot[0], rot[1], rot[2]);
+            const [x, y, z] = pose[name];
+            pivots[name].rotation.set(x, y, z); // Standardized to local bone axis
             pivots[name].traverse(c => { if(c.isMesh) c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff); });
         });
+
         const tl = document.getElementById('timeline');
         tl.innerHTML = '';
         frames.forEach((f, i) => {
