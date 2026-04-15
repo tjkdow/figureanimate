@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: True Symmetry Mirror</title>
+    <title>3D Rig: Draggable Reorder Timeline</title>
     <style>
         body { margin: 0; background: #050505; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; user-select: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(15, 15, 15, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -13,12 +13,28 @@
         button { width: 100%; padding: 8px; cursor: pointer; background: #222; color: white; border: 1px solid #444; border-radius: 4px; font-size: 10px; font-weight: bold; }
         button:hover { background: #333; }
         
-        #timeline-container { position: absolute; bottom: 0; width: 100%; height: 120px; background: #0a0a0a; border-top: 2px solid #333; z-index: 100; }
+        #timeline-container { position: absolute; bottom: 0; width: 100%; height: 130px; background: #0a0a0a; border-top: 2px solid #333; z-index: 100; }
         #timeline-scrubber { width: 100%; height: 35px; background: #151515; position: relative; cursor: ew-resize; border-bottom: 1px solid #333; }
         #playhead { position: absolute; top: 0; width: 2px; height: 100%; background: #ff0055; pointer-events: none; box-shadow: 0 0 8px #ff0055; z-index: 5; }
-        #frames-list { display: flex; align-items: center; padding: 10px 20px; overflow-x: auto; gap: 10px; height: 75px; }
-        .frame { min-width: 45px; height: 45px; background: #1a1a1a; display: flex; align-items: center; justify-content: center; border-radius: 4px; cursor: pointer; flex-shrink: 0; border: 1px solid #333; font-size: 11px; color: #555; }
-        .frame.active { border-color: #00ffff; background: #002222; color: #00ffff; }
+        #frames-list { display: flex; align-items: center; padding: 10px 20px; overflow-x: auto; gap: 12px; height: 85px; }
+        
+        .frame { 
+            min-width: 50px; height: 50px; background: #1a1a1a; position: relative;
+            display: flex; align-items: center; justify-content: center; 
+            border-radius: 6px; cursor: grab; flex-shrink: 0; border: 2px solid #333; 
+            font-size: 12px; color: #777; transition: transform 0.1s;
+        }
+        .frame:active { cursor: grabbing; }
+        .frame.active { border-color: #00ffff; background: #002222; color: #00ffff; box-shadow: 0 0 10px rgba(0,255,255,0.2); }
+        .frame.drag-over { border: 2px dashed #00ffff; transform: scale(1.1); }
+        
+        .del-btn { 
+            position: absolute; top: -5px; right: -5px; width: 16px; height: 16px; 
+            background: #ff0055; color: white; font-size: 10px; border-radius: 50%; 
+            display: flex; align-items: center; justify-content: center; cursor: pointer; 
+            border: none; opacity: 0; transition: 0.2s;
+        }
+        .frame:hover .del-btn { opacity: 1; }
     </style>
 </head>
 <body>
@@ -26,8 +42,8 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Swing X (Forward/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Swing Z (Up/Down/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing X</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
     <label>Local Twist</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
     
     <div class="btn-group">
@@ -82,6 +98,7 @@
     let selectedBone = "Root";
     let isPlaying = false;
     let isDraggingScrub = false;
+    let draggedFrameIdx = null;
     const pivots = {}; 
     const clickables = [];
 
@@ -138,18 +155,22 @@
         updateApp();
     };
 
+    window.deleteFrame = (idx, event) => {
+        event.stopPropagation();
+        if (frames.length <= 1) return;
+        frames.splice(idx, 1);
+        currentIdx = Math.min(currentIdx, frames.length - 1);
+        updateApp();
+    };
+
     window.mirrorPose = (from, to) => {
         const pose = frames[currentIdx];
         Object.keys(pose).forEach(name => {
             let target = null;
             if (name.includes(`_${from}`)) target = name.replace(`_${from}`, `_${to}`);
             else if (name.startsWith(from + '_')) target = name.replace(from + '_', to + '_');
-
             if (target && pose[target]) {
                 const [x, y, z] = pose[name];
-                // COMPLETE INVERSION: 
-                // Because L and R are rotated 180 degrees from each other in the skeleton, 
-                // achieve visual symmetry by flipping every sign.
                 pose[target] = [-x, -y, -z];
             }
         });
@@ -180,13 +201,39 @@
             }});
         });
 
+        // Timeline UI with Drag and Drop
         const list = document.getElementById('frames-list');
         list.innerHTML = '';
         frames.forEach((f, i) => {
             const d = document.createElement('div');
             d.className = `frame ${i === currentIdx ? 'active' : ''}`;
             d.innerText = i + 1;
+            d.setAttribute('draggable', true);
+            
+            // Delete btn
+            const del = document.createElement('button');
+            del.className = 'del-btn';
+            del.innerText = '×';
+            del.onclick = (e) => deleteFrame(i, e);
+            d.appendChild(del);
+
             d.onclick = () => { currentIdx = i; updateApp(); };
+
+            // Drag Events
+            d.ondragstart = () => { draggedFrameIdx = i; };
+            d.ondragover = (e) => { e.preventDefault(); d.classList.add('drag-over'); };
+            d.ondragleave = () => { d.classList.remove('drag-over'); };
+            d.ondrop = (e) => {
+                e.preventDefault();
+                d.classList.remove('drag-over');
+                if (draggedFrameIdx !== null && draggedFrameIdx !== i) {
+                    const movingFrame = frames.splice(draggedFrameIdx, 1)[0];
+                    frames.splice(i, 0, movingFrame);
+                    currentIdx = i;
+                    updateApp();
+                }
+            };
+
             list.appendChild(d);
         });
         
@@ -215,7 +262,7 @@
         };
     });
 
-    window.togglePlay = () => { isPlaying = !isPlaying; if(isPlaying) playLoop(); };
+    window.togglePlay = () => { isPlaying = !isPlaying; document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY"; if(isPlaying) playLoop(); };
     function playLoop() { if(!isPlaying) return; currentIdx = (currentIdx + 1) % frames.length; updateApp(); setTimeout(playLoop, 200); }
 
     renderer.domElement.addEventListener('pointerdown', (e) => {
