@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Physical Symmetry Mirror</title>
+    <title>3D Rig: True Symmetry Mirror</title>
     <style>
         body { margin: 0; background: #050505; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; user-select: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(15, 15, 15, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -132,7 +132,7 @@
 
     window.addFrame = () => {
         const lastPose = frames[currentIdx] ? JSON.parse(JSON.stringify(frames[currentIdx])) : null;
-        const newPose = lastPose || Object.fromEntries(Object.keys(config).map(n => [n, [0,0,0]]));
+        const newPose = lastPose ? JSON.parse(JSON.stringify(lastPose)) : Object.fromEntries(Object.keys(config).map(n => [n, [0,0,0]]));
         frames.push(newPose);
         currentIdx = frames.length - 1;
         updateApp();
@@ -147,10 +147,10 @@
 
             if (target && pose[target]) {
                 const [x, y, z] = pose[name];
-                // X (Swing Forward/Back) - Symmetrical, both move together
-                // Y (Twist) - Symmetrical, inward rotation is same value due to bone orientation
-                // Z (Swing Up/Down) - Inverted, because bones point in opposite world directions
-                pose[target] = [x, y, -z];
+                // COMPLETE INVERSION: 
+                // Because L and R are rotated 180 degrees from each other in the skeleton, 
+                // achieve visual symmetry by flipping every sign.
+                pose[target] = [-x, -y, -z];
             }
         });
         updateApp();
@@ -190,7 +190,6 @@
             list.appendChild(d);
         });
         
-        const scrubber = document.getElementById('timeline-scrubber');
         const perc = (currentIdx / (frames.length - 1 || 1)) * 100;
         document.getElementById('playhead').style.left = `calc(${perc}% - 1px)`;
     }
@@ -226,14 +225,6 @@
         const hit = raycaster.intersectObjects(clickables)[0];
         if (hit) { selectedBone = hit.object.userData.boneName; updateApp(); }
     });
-
-    window.addFrame = () => {
-        const lastPose = frames[currentIdx] ? JSON.parse(JSON.stringify(frames[currentIdx])) : null;
-        const newPose = lastPose ? JSON.parse(JSON.stringify(lastPose)) : Object.fromEntries(Object.keys(config).map(n => [n, [0,0,0]]));
-        frames.push(newPose);
-        currentIdx = frames.length - 1;
-        updateApp();
-    };
 
     window.addFrame();
     function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
