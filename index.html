@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Local Pivot Control</title>
+    <title>3D Rig: True Local Axis</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #refresh-note { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none; }
@@ -15,7 +15,6 @@
         #timeline { position: absolute; bottom: 0; width: 100%; height: 110px; background: #0a0a0a; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 2px solid #333; gap: 10px; }
         .frame { min-width: 65px; height: 65px; background: #222; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: grab; flex-shrink: 0; border: 2px solid #444; font-weight: bold; color: #666; }
         .frame.active { border-color: #00ffff; background: #003333; color: #00ffff; }
-        .frame.dragging { opacity: 0.3; }
     </style>
 </head>
 <body>
@@ -25,9 +24,10 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Swing X (Front/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing X (Flat Front/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing Z (Flat Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
     <label>Local Twist (Screw)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Swing Z (Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    
     <div class="btn-group">
         <button onclick="mirrorSide('R', 'L')" style="background:#4a148c;">COPY R ➔ L</button>
         <button onclick="mirrorSide('L', 'R')" style="background:#4a148c;">COPY L ➔ R</button>
@@ -72,7 +72,7 @@
     let currentIdx = 0;
     let selectedBone = "Root";
     let isPlaying = false;
-    let draggedItemIdx = null;
+    let draggedIdx = null;
     const pivots = {}; 
     const clickables = [];
 
@@ -90,7 +90,7 @@
         const pivot = new THREE.Group();
         pivot.name = name;
         pivots[name] = pivot;
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color: 0x00ffff}));
         pivot.add(dot);
 
         if (config[name].p) {
@@ -126,7 +126,7 @@
                 const targetName = name.replace(`_${from}`, `_${to}`);
                 if (pose[targetName]) {
                     const r = pose[name];
-                    // Mirroring logic for symmetry: flip local twist and lift
+                    // Standard Mirror: Flip Y (Twist) and Z (Lift)
                     pose[targetName] = [r[0], -r[1], -r[2]];
                 }
             }
@@ -143,14 +143,17 @@
             const [x, y, z] = pose[name];
             const pivot = pivots[name];
             
-            // RESET ROTATION
             pivot.quaternion.set(0, 0, 0, 1);
             
-            // 1. SWING (Point the bone)
-            const qSwing = new THREE.Quaternion().setFromEuler(new THREE.Euler(x, 0, z, 'YXZ'));
-            pivot.quaternion.multiply(qSwing);
+            // X-AXIS: Rotate around the world X (Front/Back Swing)
+            const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), x);
+            pivot.quaternion.multiply(qX);
+
+            // Z-AXIS: Rotate around the world Z (Side Lift)
+            const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z);
+            pivot.quaternion.multiply(qZ);
             
-            // 2. TWIST (Rotate bone on its own axis)
+            // Y-AXIS (TWIST): Rotate around the bone's own local vector
             const boneDir = new THREE.Vector3().fromArray(config[name].d).normalize();
             const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir, y);
             pivot.quaternion.multiply(qTwist);
@@ -166,11 +169,11 @@
             div.draggable = true;
             div.innerText = i + 1;
             div.onclick = () => { currentIdx = i; updateApp(); };
-            div.ondragstart = () => { draggedItemIdx = i; };
-            div.ondragover = (e) => e.preventDefault();
+            div.ondragstart = () => { draggedIdx = i; };
+            div.ondragover = e => e.preventDefault();
             div.ondrop = () => {
-                const draggedFrame = frames.splice(draggedItemIdx, 1)[0];
-                frames.splice(i, 0, draggedFrame);
+                const item = frames.splice(draggedIdx, 1)[0];
+                frames.splice(i, 0, item);
                 currentIdx = i;
                 updateApp();
             };
