@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Spherical Rotation Fix</title>
+    <title>3D Rig: Local Pivot Control</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #refresh-note { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none; }
@@ -11,10 +11,9 @@
         label { display: block; font-size: 10px; color: #888; margin-top: 8px; text-transform: uppercase; }
         input[type=range] { width: 100%; cursor: pointer; margin-bottom: 4px; }
         .btn-group { display: flex; gap: 5px; margin-top: 15px; }
-        button { width: 100%; padding: 10px; margin-top: 8px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; font-size: 11px; font-weight: bold; transition: 0.2s; }
-        button:hover { background: #444; border-color: #00ffff; }
+        button { width: 100%; padding: 10px; margin-top: 8px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; font-size: 11px; font-weight: bold; }
         #timeline { position: absolute; bottom: 0; width: 100%; height: 110px; background: #0a0a0a; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 2px solid #333; gap: 10px; }
-        .frame { min-width: 65px; height: 65px; background: #222; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: grab; flex-shrink: 0; border: 2px solid #444; font-weight: bold; color: #666; transition: 0.2s; }
+        .frame { min-width: 65px; height: 65px; background: #222; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: grab; flex-shrink: 0; border: 2px solid #444; font-weight: bold; color: #666; }
         .frame.active { border-color: #00ffff; background: #003333; color: #00ffff; }
         .frame.dragging { opacity: 0.3; }
     </style>
@@ -26,15 +25,15 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Frontal Plane (Swing)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Local Twist (Along Bone)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Transverse Plane (Lift)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing X (Front/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Local Twist (Screw)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing Z (Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
     <div class="btn-group">
-        <button onclick="mirrorSide('R', 'L')" style="background:#4a148c; border:none;">COPY R ➔ L</button>
-        <button onclick="mirrorSide('L', 'R')" style="background:#4a148c; border:none;">COPY L ➔ R</button>
+        <button onclick="mirrorSide('R', 'L')" style="background:#4a148c;">COPY R ➔ L</button>
+        <button onclick="mirrorSide('L', 'R')" style="background:#4a148c;">COPY L ➔ R</button>
     </div>
-    <button onclick="addFrame()" style="background:#1b5e20; border:none;">+ NEW FRAME</button>
-    <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1; border:none;">PLAY ANIMATION</button>
+    <button onclick="addFrame()" style="background:#1b5e20;">+ NEW FRAME</button>
+    <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1;">PLAY</button>
 </div>
 
 <div id="timeline"></div>
@@ -90,9 +89,8 @@
     Object.keys(config).forEach(name => {
         const pivot = new THREE.Group();
         pivot.name = name;
-        pivot.rotation.order = 'YXZ'; // Internal ordering
         pivots[name] = pivot;
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ffff}));
         pivot.add(dot);
 
         if (config[name].p) {
@@ -102,7 +100,7 @@
             parentPivot.add(pivot);
             const { l, d } = config[name];
             if (l > 0) {
-                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l, 8), new THREE.MeshBasicMaterial({color: 0xffffff}));
+                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l, 6), new THREE.MeshBasicMaterial({color: 0xffffff}));
                 mesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
                 if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
                 else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
@@ -124,11 +122,11 @@
     window.mirrorSide = (from, to) => {
         const pose = frames[currentIdx];
         Object.keys(pose).forEach(name => {
-            if (name.includes(`_${from}`)) {
+            if (name.endsWith(`_${from}`)) {
                 const targetName = name.replace(`_${from}`, `_${to}`);
                 if (pose[targetName]) {
                     const r = pose[name];
-                    // Flipping Y and Z for symmetry across the midline
+                    // Mirroring logic for symmetry: flip local twist and lift
                     pose[targetName] = [r[0], -r[1], -r[2]];
                 }
             }
@@ -143,8 +141,21 @@
 
         Object.keys(pivots).forEach(name => {
             const [x, y, z] = pose[name];
-            pivots[name].rotation.set(x, y, z); // Standardized to local bone axis
-            pivots[name].traverse(c => { if(c.isMesh) c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff); });
+            const pivot = pivots[name];
+            
+            // RESET ROTATION
+            pivot.quaternion.set(0, 0, 0, 1);
+            
+            // 1. SWING (Point the bone)
+            const qSwing = new THREE.Quaternion().setFromEuler(new THREE.Euler(x, 0, z, 'YXZ'));
+            pivot.quaternion.multiply(qSwing);
+            
+            // 2. TWIST (Rotate bone on its own axis)
+            const boneDir = new THREE.Vector3().fromArray(config[name].d).normalize();
+            const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir, y);
+            pivot.quaternion.multiply(qTwist);
+
+            pivot.traverse(c => { if(c.isMesh && c.geometry.type === 'CylinderGeometry') c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff); });
         });
 
         const tl = document.getElementById('timeline');
@@ -155,7 +166,7 @@
             div.draggable = true;
             div.innerText = i + 1;
             div.onclick = () => { currentIdx = i; updateApp(); };
-            div.ondragstart = () => { draggedItemIdx = i; div.classList.add('dragging'); };
+            div.ondragstart = () => { draggedItemIdx = i; };
             div.ondragover = (e) => e.preventDefault();
             div.ondrop = () => {
                 const draggedFrame = frames.splice(draggedItemIdx, 1)[0];
@@ -169,7 +180,7 @@
 
     window.togglePlay = () => {
         isPlaying = !isPlaying;
-        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY ANIMATION";
+        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY";
         if(isPlaying) playLoop();
     };
     function playLoop() {
