@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Feet on Ground</title>
+    <title>3D Rig: Fixed Pivot Hierarchy</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -20,9 +20,9 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Swing X (Forward/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Swing Z (Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Local Twist (Screw)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing X</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Local Twist</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
     
     <button onclick="addFrame()" style="background:#1b5e20; margin-top:15px;">+ NEW FRAME</button>
     <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1;">PLAY</button>
@@ -38,12 +38,10 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
 
-    // Leg lengths adjusted so they reach exactly Y=0 when standing straight.
-    // Thigh (1.1) + Calf (0.9) + Foot height (0.2) = 2.2 total height to Pelvis.
     const config = {
         "Root":           { p: null,     l: 0,    d: [0,0,0] }, 
-        "Pelvis":         { p: "Root",   l: 0,    d: [0,0,0] },  
-        "Spine":          { p: "Root",   l: 0.8,  d: [0,1,0] },  
+        "Pelvis":         { p: "Root",   l: 0,    d: [0,0,0], offset: [0, 2.2, 0] }, // Master for Legs
+        "Spine":          { p: "Root",   l: 0.8,  d: [0,1,0], offset: [0, 2.2, 0] }, // Master for Torso
         "Pelvis_L":       { p: "Pelvis", l: 0.3,  d: [1,0,0] },
         "Pelvis_R":       { p: "Pelvis", l: 0.3,  d: [-1,0,0] },
         "Chest":          { p: "Spine",  l: 0.7,  d: [0,1,0] },
@@ -73,13 +71,11 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(2, 2, 6);
+    camera.position.set(3, 2, 6);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
     new OrbitControls(camera, renderer.domElement);
-    
-    // The zero-level grid.
     scene.add(new THREE.GridHelper(10, 20, 0x444444, 0x222222));
 
     Object.keys(config).forEach(name => {
@@ -92,29 +88,33 @@
         
         const dot = new THREE.Mesh(
             new THREE.SphereGeometry(isRoot ? 0.12 : (isMaster ? 0.08 : 0.05)), 
-            new THREE.MeshBasicMaterial({color: isRoot ? 0xaa00ff : (isMaster ? 0xffffff : 0x00ffff)})
+            new THREE.MeshBasicMaterial({color: isRoot ? 0xaa00ff : 0xffffff})
         );
         pivot.add(dot);
         dot.userData.boneName = name;
         clickables.push(dot);
 
         if (isRoot) {
-            pivot.position.set(0, 0, 0); 
             scene.add(pivot);
         } else {
             const parentPivot = pivots[config[name].p];
-            const pData = config[parentPivot.name];
-            // Pelvis and Spine start at hip height (2.2)
-            const offset = (parentPivot.name === "Root") ? 2.2 : pData.l;
-            pivot.position.set(pData.d[0]*offset, pData.d[1]*offset, pData.d[2]*offset);
+            const cfg = config[name];
+            
+            // If we have a custom offset (like Pelvis/Spine), use it. 
+            // Otherwise, calculate position based on parent's length.
+            if (cfg.offset) {
+                pivot.position.set(...cfg.offset);
+            } else {
+                const pData = config[parentPivot.name];
+                pivot.position.set(pData.d[0]*pData.l, pData.d[1]*pData.l, pData.d[2]*pData.l);
+            }
             parentPivot.add(pivot);
             
-            const { l, d } = config[name];
-            if (l > 0) {
-                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l, 6), new THREE.MeshBasicMaterial({color: 0xffffff}));
-                mesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
-                if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
-                else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
+            if (cfg.l > 0) {
+                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, cfg.l, 6), new THREE.MeshBasicMaterial({color: 0xffffff}));
+                mesh.position.set(cfg.d[0]*cfg.l/2, cfg.d[1]*cfg.l/2, cfg.d[2]*cfg.l/2);
+                if(cfg.d[0] !== 0) mesh.rotation.z = Math.PI/2;
+                else if(cfg.d[2] !== 0) mesh.rotation.x = Math.PI/2;
                 pivot.add(mesh);
                 mesh.userData.boneName = name;
                 clickables.push(mesh);
@@ -155,6 +155,7 @@
                 if(c.isMesh) {
                     if (name === selectedBone) c.material.color.set(0xffff00);
                     else if (name === "Root") c.material.color.set(0xaa00ff);
+                    else if (name === "Pelvis" || name === "Spine") c.material.color.set(0x00ffff);
                     else c.material.color.set(0xffffff);
                 }
             });
