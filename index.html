@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Anatomical Planes</title>
+    <title>3D Rig: Universal Axis Fix</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #refresh-note { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none; }
@@ -24,9 +24,9 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Front-Back (Chest Plane)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Side-Lift (Jumping Jack)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Local Twist (Screw)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing X (Forward/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Swing Z (Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Local Twist (Screwdriver)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
     
     <div class="btn-group">
         <button onclick="mirrorSide('R', 'L')" style="background:#4a148c;">COPY R ➔ L</button>
@@ -126,7 +126,6 @@
                 const targetName = name.replace(`_${from}`, `_${to}`);
                 if (pose[targetName]) {
                     const r = pose[name];
-                    // Mirror X-swing, Flip Twist/Lift for symmetry
                     pose[targetName] = [r[0], -r[1], -r[2]];
                 }
             }
@@ -142,20 +141,30 @@
         Object.keys(pivots).forEach(name => {
             const [x, y, z] = pose[name];
             const pivot = pivots[name];
+            const boneDir = new THREE.Vector3().fromArray(config[name].d).normalize();
             
             pivot.quaternion.set(0, 0, 0, 1);
             
-            // 1. Apply Lift (Z) - Standard Jumping Jack motion
+            // 1. Calculate Side-to-Side axis (Z)
+            // For Arms, this is world Z. For Legs/Spine, this is also world Z.
             const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z);
             pivot.quaternion.multiply(qZ);
 
-            // 2. Apply Swing (X) - Now relative to the new lifted position
-            // We use World Y as the axis here so the swing is always "forward/back" relative to chest
-            const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), x);
+            // 2. Calculate Forward/Back axis (X)
+            // CRITICAL FIX: The swing axis must be perpendicular to the bone's default direction AND the lift axis.
+            let swingAxis = new THREE.Vector3(1, 0, 0); 
+            if (Math.abs(boneDir.y) > 0.5) {
+                // If the bone is vertical (Leg/Spine), X swing should be around world X.
+                swingAxis.set(1, 0, 0);
+            } else {
+                // If bone is horizontal (Arms), X swing should be around world Y (for the clapping motion).
+                swingAxis.set(0, 1, 0);
+            }
+            
+            const qX = new THREE.Quaternion().setFromAxisAngle(swingAxis, x);
             pivot.quaternion.multiply(qX);
             
-            // 3. Apply Twist (Y) - Local to the bone direction
-            const boneDir = new THREE.Vector3().fromArray(config[name].d).normalize();
+            // 3. Local Twist (Y)
             const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir, y);
             pivot.quaternion.multiply(qTwist);
 
