@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Decoupled Gimmick</title>
+    <title>3D Rig: Floor Root Master</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -38,28 +38,28 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
 
+    // Root is now at the floor. Pelvis is at the hips.
     const config = {
-        "Root":           { p: null,    l: 0,    d: [0,0,0] },
-        "Pelvis_L":       { p: "Root",  l: 0.3,  d: [1,0,0] },
-        "Pelvis_R":       { p: "Root",  l: 0.3,  d: [-1,0,0] },
-        "Spine":          { p: "Root",  l: 0.8,  d: [0,1,0] },
-        "Chest":          { p: "Spine", l: 0.7,  d: [0,1,0] },
-        "Neck":           { p: "Chest", l: 0.2,  d: [0,1,0] },
-        "Head":           { p: "Neck",  l: 0.4,  d: [0,1,0] },
-        "L_Arm":          { p: "Chest", l: 0.7,  d: [1,0,0] },
-        "L_Forearm":      { p: "L_Arm", l: 0.6,  d: [1,0,0] },
+        "Root":           { p: null,     l: 2.2,  d: [0,1,0] },  // Absolute Master at Foot Level
+        "Pelvis":         { p: "Root",   l: 0,    d: [0,0,0] },  // At Hips (offset by Root's length)
+        "Pelvis_L":       { p: "Pelvis", l: 0.3,  d: [1,0,0] },
+        "Pelvis_R":       { p: "Pelvis", l: 0.3,  d: [-1,0,0] },
+        "Spine":          { p: "Pelvis", l: 0.8,  d: [0,1,0] },
+        "Chest":          { p: "Spine",  l: 0.7,  d: [0,1,0] },
+        "Neck":           { p: "Chest",  l: 0.2,  d: [0,1,0] },
+        "Head":           { p: "Neck",   l: 0.4,  d: [0,1,0] },
+        "L_Arm":          { p: "Chest",  l: 0.7,  d: [1,0,0] },
+        "L_Forearm":      { p: "L_Arm",  l: 0.6,  d: [1,0,0] },
         "L_Hand":         { p: "L_Forearm", l: 0.3, d: [1,0,0] },
-        "R_Arm":          { p: "Chest", l: 0.7,  d: [-1,0,0] },
-        "R_Forearm":      { p: "R_Arm", l: 0.6,  d: [-1,0,0] },
+        "R_Arm":          { p: "Chest",  l: 0.7,  d: [-1,0,0] },
+        "R_Forearm":      { p: "R_Arm",  l: 0.6,  d: [-1,0,0] },
         "R_Hand":         { p: "R_Forearm", l: 0.3, d: [-1,0,0] },
         "L_Thigh":        { p: "Pelvis_L", l: 1.0, d: [0,-1,0] },
         "L_Calf":         { p: "L_Thigh",  l: 0.9, d: [0,-1,0] },
         "L_Foot":         { p: "L_Calf",   l: 0.3, d: [0,0,1] },
         "R_Thigh":        { p: "Pelvis_R", l: 1.0, d: [0,-1,0] },
         "R_Calf":         { p: "R_Thigh",  l: 0.9, d: [0,-1,0] },
-        "R_Foot":         { p: "R_Calf",   l: 0.3, d: [0,0,1] },
-        // Gimmick Helper is outside the normal flow
-        "Gimmick_Helper": { p: "independent", l: 0, d: [0, -0.4, 0] } 
+        "R_Foot":         { p: "R_Calf",   l: 0.3, d: [0,0,1] }
     };
 
     let frames = [];
@@ -72,7 +72,7 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(0, 1, 6);
+    camera.position.set(0, 0, 8);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
@@ -85,19 +85,19 @@
         pivots[name] = pivot;
         
         const isRoot = name === "Root";
-        const isGimmick = name === "Gimmick_Helper";
+        const isPelvis = name === "Pelvis";
         
         const dot = new THREE.Mesh(
-            new THREE.SphereGeometry(isRoot || isGimmick ? 0.08 : 0.05), 
-            new THREE.MeshBasicMaterial({color: isGimmick ? 0xaa00ff : (isRoot ? 0xffffff : 0x00ffff)})
+            new THREE.SphereGeometry(isRoot || isPelvis ? 0.1 : 0.05), 
+            new THREE.MeshBasicMaterial({color: isRoot ? 0xaa00ff : (isPelvis ? 0xffffff : 0x00ffff)})
         );
         pivot.add(dot);
         dot.userData.boneName = name;
         clickables.push(dot);
 
-        if (name === "Gimmick_Helper") {
-            pivot.position.set(0, -0.4, 0); // Decoupled position
-            scene.add(pivot); 
+        if (isRoot) {
+            pivot.position.set(0, -2.2, 0); // Ground level
+            scene.add(pivot);
         } else if (config[name].p) {
             const parentPivot = pivots[config[name].p];
             const pData = config[parentPivot.name];
@@ -114,7 +114,7 @@
                 mesh.userData.boneName = name;
                 clickables.push(mesh);
             }
-        } else { scene.add(pivot); }
+        }
     });
 
     window.addFrame = () => {
@@ -139,7 +139,7 @@
             const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z);
             pivot.quaternion.multiply(qZ);
 
-            let swingAxis = (Math.abs(boneDir.y) > 0.5 || boneDir.length() === 0) ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+            let swingAxis = (Math.abs(boneDir.y) > 0.5 || name === "Root" || name === "Pelvis") ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
             const qX = new THREE.Quaternion().setFromAxisAngle(swingAxis, x);
             pivot.quaternion.multiply(qX);
             
@@ -149,8 +149,8 @@
             pivot.traverse(c => { 
                 if(c.isMesh) {
                     if (name === selectedBone) c.material.color.set(0xffff00);
-                    else if (name === "Gimmick_Helper") c.material.color.set(0xaa00ff);
-                    else if (name === "Root") c.material.color.set(0xffffff);
+                    else if (name === "Root") c.material.color.set(0xaa00ff);
+                    else if (name === "Pelvis") c.material.color.set(0xffffff);
                     else c.material.color.set(0xffffff);
                 }
             });
