@@ -2,35 +2,37 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Final Fix</title>
+    <title>3D Rig: Pelvis Master & Live Mirror</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
-        #refresh-note { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
         #bone-label { font-size: 16px; font-weight: bold; color: #00ffff; display: block; margin-bottom: 10px; }
         label { display: block; font-size: 10px; color: #888; margin-top: 8px; text-transform: uppercase; }
         input[type=range] { width: 100%; cursor: pointer; margin-bottom: 4px; }
         .btn-group { display: flex; gap: 5px; margin-top: 15px; }
         button { width: 100%; padding: 10px; margin-top: 8px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; font-size: 11px; font-weight: bold; }
+        .toggle-box { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 11px; color: #00ffff; }
         #timeline { position: absolute; bottom: 0; width: 100%; height: 110px; background: #0a0a0a; display: flex; align-items: center; padding: 0 20px; overflow-x: auto; z-index: 100; border-top: 2px solid #333; gap: 10px; }
-        .frame { min-width: 65px; height: 65px; background: #222; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: grab; flex-shrink: 0; border: 2px solid #444; font-weight: bold; color: #666; }
+        .frame { min-width: 65px; height: 65px; background: #222; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; flex-shrink: 0; border: 2px solid #444; font-weight: bold; color: #666; }
         .frame.active { border-color: #00ffff; background: #003333; color: #00ffff; }
     </style>
 </head>
 <body>
-
-<div id="refresh-note">REFRESH IF NOT UPDATED</div>
 
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
     <label>Swing X (Forward/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
     <label>Swing Z (Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Local Twist (Screwdriver)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Local Twist (Screw)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
     
+    <div class="toggle-box">
+        <input type="checkbox" id="liveMirror"> <label for="liveMirror" style="color:#00ffff; margin:0;">Live Mirror Mode</label>
+    </div>
+
     <div class="btn-group">
-        <button onclick="mirrorSide('R', 'L')" style="background:#4a148c;">COPY R ➔ L</button>
-        <button onclick="mirrorSide('L', 'R')" style="background:#4a148c;">COPY L ➔ R</button>
+        <button onclick="mirrorSide('R', 'L')" style="background:#4a148c;">FORCE R➔L</button>
+        <button onclick="mirrorSide('L', 'R')" style="background:#4a148c;">FORCE L➔R</button>
     </div>
     <button onclick="addFrame()" style="background:#1b5e20;">+ NEW FRAME</button>
     <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1;">PLAY</button>
@@ -46,33 +48,34 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
 
+    // Added "Pelvis_Master" as a child of Root. Pelvis_L and Pelvis_R are now children of Pelvis_Master.
     const config = {
-        "Root":      { p: null,    l: 0,   d: [0,0,0] },
-        "Pelvis_L":  { p: "Root",  l: 0.3, d: [1,0,0] },
-        "Pelvis_R":  { p: "Root",  l: 0.3, d: [-1,0,0] },
-        "Spine":     { p: "Root",  l: 0.8, d: [0,1,0] },
-        "Chest":     { p: "Spine", l: 0.7, d: [0,1,0] },
-        "Neck":      { p: "Chest", l: 0.2, d: [0,1,0] },
-        "Head":      { p: "Neck",  l: 0.4, d: [0,1,0] },
-        "L_Arm":     { p: "Chest", l: 0.7, d: [1,0,0] },
-        "L_Forearm": { p: "L_Arm", l: 0.6, d: [1,0,0] },
-        "L_Hand":    { p: "L_Forearm", l: 0.3, d: [1,0,0] },
-        "R_Arm":     { p: "Chest", l: 0.7, d: [-1,0,0] },
-        "R_Forearm": { p: "R_Arm", l: 0.6, d: [-1,0,0] },
-        "R_Hand":    { p: "R_Forearm", l: 0.3, d: [-1,0,0] },
-        "L_Thigh":   { p: "Pelvis_L", l: 1.0, d: [0,-1,0] },
-        "L_Calf":    { p: "L_Thigh",  l: 0.9, d: [0,-1,0] },
-        "L_Foot":    { p: "L_Calf",   l: 0.3, d: [0,0,1] },
-        "R_Thigh":   { p: "Pelvis_R", l: 1.0, d: [0,-1,0] },
-        "R_Calf":    { p: "R_Thigh",  l: 0.9, d: [0,-1,0] },
-        "R_Foot":    { p: "R_Calf",   l: 0.3, d: [0,0,1] }
+        "Root":          { p: null,           l: 0,   d: [0,0,0] },
+        "Pelvis_Master": { p: "Root",          l: 0,   d: [0,0,0] }, 
+        "Pelvis_L":      { p: "Pelvis_Master", l: 0.3, d: [1,0,0] },
+        "Pelvis_R":      { p: "Pelvis_Master", l: 0.3, d: [-1,0,0] },
+        "Spine":         { p: "Root",          l: 0.8, d: [0,1,0] },
+        "Chest":         { p: "Spine",         l: 0.7, d: [0,1,0] },
+        "Neck":          { p: "Chest",         l: 0.2, d: [0,1,0] },
+        "Head":          { p: "Neck",          l: 0.4, d: [0,1,0] },
+        "L_Arm":         { p: "Chest",         l: 0.7, d: [1,0,0] },
+        "L_Forearm":     { p: "L_Arm",         l: 0.6, d: [1,0,0] },
+        "L_Hand":        { p: "L_Forearm",     l: 0.3, d: [1,0,0] },
+        "R_Arm":         { p: "Chest",         l: 0.7, d: [-1,0,0] },
+        "R_Forearm":     { p: "R_Arm",         l: 0.6, d: [-1,0,0] },
+        "R_Hand":        { p: "R_Forearm",     l: 0.3, d: [-1,0,0] },
+        "L_Thigh":       { p: "Pelvis_L",      l: 1.0, d: [0,-1,0] },
+        "L_Calf":        { p: "L_Thigh",       l: 0.9, d: [0,-1,0] },
+        "L_Foot":        { p: "L_Calf",        l: 0.3, d: [0,0,1] },
+        "R_Thigh":       { p: "Pelvis_R",      l: 1.0, d: [0,-1,0] },
+        "R_Calf":        { p: "R_Thigh",       l: 0.9, d: [0,-1,0] },
+        "R_Foot":        { p: "R_Calf",        l: 0.3, d: [0,0,1] }
     };
 
     let frames = [];
     let currentIdx = 0;
     let selectedBone = "Root";
     let isPlaying = false;
-    let draggedIdx = null;
     const pivots = {}; 
     const clickables = [];
 
@@ -90,8 +93,16 @@
         const pivot = new THREE.Group();
         pivot.name = name;
         pivots[name] = pivot;
-        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.06), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+        
+        // Visual indicator for master joints (Cyan spheres)
+        const isMaster = name.includes("Master") || name === "Root";
+        const dot = new THREE.Mesh(
+            new THREE.SphereGeometry(isMaster ? 0.08 : 0.05), 
+            new THREE.MeshBasicMaterial({color: isMaster ? 0xff00ff : 0x00ffff})
+        );
         pivot.add(dot);
+        dot.userData.boneName = name;
+        clickables.push(dot);
 
         if (config[name].p) {
             const parentPivot = pivots[config[name].p];
@@ -108,7 +119,7 @@
                 mesh.userData.boneName = name;
                 clickables.push(mesh);
             }
-        } else { scene.add(pivot); dot.userData.boneName = name; clickables.push(dot); }
+        } else { scene.add(pivot); }
     });
 
     window.addFrame = () => {
@@ -123,18 +134,11 @@
         const pose = frames[currentIdx];
         const prefixFrom = fromSuffix === 'L' ? 'L_' : 'R_';
         const prefixTo = toSuffix === 'L' ? 'L_' : 'R_';
-        
         Object.keys(pose).forEach(name => {
-            // Check for names like L_Arm or Pelvis_L
             if (name.includes(`_${fromSuffix}`) || name.startsWith(prefixFrom)) {
                 let targetName = name.replace(`_${fromSuffix}`, `_${toSuffix}`).replace(prefixFrom, prefixTo);
-                
                 if (pose[targetName]) {
                     const [x, y, z] = pose[name];
-                    // Mirror logic: 
-                    // X (Forward) stays same.
-                    // Y (Twist) flips for symmetry.
-                    // Z (Lift) flips for symmetry.
                     pose[targetName] = [x, -y, -z];
                 }
             }
@@ -153,24 +157,17 @@
             const boneDir = new THREE.Vector3().fromArray(config[name].d).normalize();
             
             pivot.quaternion.set(0, 0, 0, 1);
-            
             const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z);
             pivot.quaternion.multiply(qZ);
 
-            let swingAxis = new THREE.Vector3(1, 0, 0); 
-            if (Math.abs(boneDir.y) > 0.5) {
-                swingAxis.set(1, 0, 0); // Legs/Spine
-            } else {
-                swingAxis.set(0, 1, 0); // Arms
-            }
-            
+            let swingAxis = (Math.abs(boneDir.y) > 0.5 || boneDir.length() === 0) ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
             const qX = new THREE.Quaternion().setFromAxisAngle(swingAxis, x);
             pivot.quaternion.multiply(qX);
             
-            const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir, y);
+            const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir.length() === 0 ? new THREE.Vector3(0,1,0) : boneDir, y);
             pivot.quaternion.multiply(qTwist);
 
-            pivot.traverse(c => { if(c.isMesh && c.geometry.type === 'CylinderGeometry') c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff); });
+            pivot.traverse(c => { if(c.isMesh) c.material.color.set(name === selectedBone ? 0xffff00 : (name.includes("Master") ? 0xff00ff : 0xffffff)); });
         });
 
         const tl = document.getElementById('timeline');
@@ -178,38 +175,38 @@
         frames.forEach((f, i) => {
             const div = document.createElement('div');
             div.className = `frame ${i === currentIdx ? 'active' : ''}`;
-            div.draggable = true;
             div.innerText = i + 1;
             div.onclick = () => { currentIdx = i; updateApp(); };
-            div.ondragstart = () => { draggedIdx = i; };
-            div.ondragover = e => e.preventDefault();
-            div.ondrop = () => {
-                const item = frames.splice(draggedIdx, 1)[0];
-                frames.splice(i, 0, item);
-                currentIdx = i;
-                updateApp();
-            };
             tl.appendChild(div);
         });
     }
 
-    window.togglePlay = () => {
-        isPlaying = !isPlaying;
-        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY";
-        if(isPlaying) playLoop();
-    };
-    function playLoop() {
-        if(!isPlaying) return;
-        currentIdx = (currentIdx + 1) % frames.length;
-        updateApp();
-        setTimeout(playLoop, 200);
-    }
     ['rotX', 'rotY', 'rotZ'].forEach((id, axis) => {
         document.getElementById(id).oninput = (e) => {
-            frames[currentIdx][selectedBone][axis] = parseFloat(e.target.value);
+            const val = parseFloat(e.target.value);
+            frames[currentIdx][selectedBone][axis] = val;
+            
+            // LIVE MIRROR LOGIC
+            if (document.getElementById('liveMirror').checked) {
+                let other = "";
+                if (selectedBone.includes("_L")) other = selectedBone.replace("_L", "_R");
+                else if (selectedBone.includes("_R")) other = selectedBone.replace("_R", "_L");
+                else if (selectedBone.startsWith("L_")) other = selectedBone.replace("L_", "R_");
+                else if (selectedBone.startsWith("R_")) other = selectedBone.replace("R_", "L_");
+                
+                if (other && frames[currentIdx][other]) {
+                    // X (Forward) is same, Twist and Lift are inverted for symmetry
+                    const mirrorVal = (axis === 0) ? val : -val;
+                    frames[currentIdx][other][axis] = mirrorVal;
+                }
+            }
             updateApp();
         };
     });
+
+    window.togglePlay = () => { isPlaying = !isPlaying; if(isPlaying) playLoop(); };
+    function playLoop() { if(!isPlaying) return; currentIdx = (currentIdx + 1) % frames.length; updateApp(); setTimeout(playLoop, 200); }
+
     renderer.domElement.addEventListener('pointerdown', (e) => {
         const mouse = new THREE.Vector2((e.clientX/window.innerWidth)*2-1, -(e.clientY/window.innerHeight)*2+1);
         const raycaster = new THREE.Raycaster();
