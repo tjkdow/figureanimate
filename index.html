@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Floor Root Master</title>
+    <title>3D Rig: Origin Root Master</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -38,13 +38,12 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'controls';
 
-    // Root is now at the floor. Pelvis is at the hips.
     const config = {
-        "Root":           { p: null,     l: 2.2,  d: [0,1,0] },  // Absolute Master at Foot Level
-        "Pelvis":         { p: "Root",   l: 0,    d: [0,0,0] },  // At Hips (offset by Root's length)
+        "Root":           { p: null,     l: 2.2,  d: [0,1,0] },  // Ground (0,0,0)
+        "Pelvis":         { p: "Root",   l: 0,    d: [0,0,0] },  // Lower body master
+        "Spine":          { p: "Root",   l: 0.8,  d: [0,1,0] },  // Upper body master (Now a sibling of Pelvis)
         "Pelvis_L":       { p: "Pelvis", l: 0.3,  d: [1,0,0] },
         "Pelvis_R":       { p: "Pelvis", l: 0.3,  d: [-1,0,0] },
-        "Spine":          { p: "Pelvis", l: 0.8,  d: [0,1,0] },
         "Chest":          { p: "Spine",  l: 0.7,  d: [0,1,0] },
         "Neck":           { p: "Chest",  l: 0.2,  d: [0,1,0] },
         "Head":           { p: "Neck",   l: 0.4,  d: [0,1,0] },
@@ -72,12 +71,14 @@
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 100);
-    camera.position.set(0, 0, 8);
+    camera.position.set(0, 1, 6);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
     new OrbitControls(camera, renderer.domElement);
-    scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
+    
+    // Grid at y=0 matches Root
+    scene.add(new THREE.GridHelper(10, 10, 0x444444, 0x222222));
 
     Object.keys(config).forEach(name => {
         const pivot = new THREE.Group();
@@ -85,23 +86,25 @@
         pivots[name] = pivot;
         
         const isRoot = name === "Root";
-        const isPelvis = name === "Pelvis";
+        const isMasterJoint = name === "Pelvis" || name === "Spine";
         
         const dot = new THREE.Mesh(
-            new THREE.SphereGeometry(isRoot || isPelvis ? 0.1 : 0.05), 
-            new THREE.MeshBasicMaterial({color: isRoot ? 0xaa00ff : (isPelvis ? 0xffffff : 0x00ffff)})
+            new THREE.SphereGeometry(isRoot || isMasterJoint ? 0.08 : 0.05), 
+            new THREE.MeshBasicMaterial({color: isRoot ? 0xaa00ff : (isMasterJoint ? 0xffffff : 0x00ffff)})
         );
         pivot.add(dot);
         dot.userData.boneName = name;
         clickables.push(dot);
 
         if (isRoot) {
-            pivot.position.set(0, -2.2, 0); // Ground level
+            pivot.position.set(0, 0, 0); // EXACTLY AT 0,0,0
             scene.add(pivot);
         } else if (config[name].p) {
             const parentPivot = pivots[config[name].p];
             const pData = config[parentPivot.name];
-            pivot.position.set(pData.d[0]*pData.l, pData.d[1]*pData.l, pData.d[2]*pData.l);
+            // If parent is Root, we offset the Pelvis/Spine up to hip level
+            const offset = (parentPivot.name === "Root") ? 2.2 : pData.l;
+            pivot.position.set(pData.d[0]*offset, pData.d[1]*offset, pData.d[2]*offset);
             parentPivot.add(pivot);
             
             const { l, d } = config[name];
@@ -139,18 +142,17 @@
             const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z);
             pivot.quaternion.multiply(qZ);
 
-            let swingAxis = (Math.abs(boneDir.y) > 0.5 || name === "Root" || name === "Pelvis") ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+            let swingAxis = (Math.abs(boneDir.y) > 0.5 || name === "Root" || name === "Pelvis" || name === "Spine") ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
             const qX = new THREE.Quaternion().setFromAxisAngle(swingAxis, x);
             pivot.quaternion.multiply(qX);
             
-            const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir.length() === 0 ? new THREE.Vector3(0,1,0) : boneDir, y);
+            const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir.length() === 0 || name === "Root" ? new THREE.Vector3(0,1,0) : boneDir, y);
             pivot.quaternion.multiply(qTwist);
 
             pivot.traverse(c => { 
                 if(c.isMesh) {
                     if (name === selectedBone) c.material.color.set(0xffff00);
                     else if (name === "Root") c.material.color.set(0xaa00ff);
-                    else if (name === "Pelvis") c.material.color.set(0xffffff);
                     else c.material.color.set(0xffffff);
                 }
             });
