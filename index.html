@@ -2,13 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Pro Animator</title>
+    <title>3D Rig: Local Axis Fix</title>
     <style>
-        body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
+        body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden; touch-action: none; }
+        
+        /* Small reminder at the top */
+        #refresh-note { 
+            position: absolute; top: 5px; left: 50%; transform: translateX(-50%); 
+            font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none;
+        }
+
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(20, 20, 20, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
         #bone-label { font-size: 16px; font-weight: bold; color: #00ffff; display: block; margin-bottom: 10px; }
         label { display: block; font-size: 10px; color: #888; margin-top: 8px; text-transform: uppercase; }
-        input[type=range] { width: 100%; cursor: pointer; }
+        input[type=range] { width: 100%; cursor: pointer; margin-bottom: 4px; }
+        
+        .btn-group { display: flex; gap: 5px; margin-top: 15px; }
         button { width: 100%; padding: 10px; margin-top: 8px; cursor: pointer; background: #333; color: white; border: 1px solid #555; border-radius: 4px; font-size: 11px; font-weight: bold; transition: 0.2s; }
         button:hover { background: #444; border-color: #00ffff; }
         
@@ -16,30 +25,39 @@
         .frame { 
             min-width: 65px; height: 65px; background: #222; display: flex; align-items: center; justify-content: center; 
             border-radius: 6px; cursor: grab; flex-shrink: 0; border: 2px solid #444; font-weight: bold; 
-            color: #666; user-select: none; position: relative;
+            color: #666; user-select: none; transition: 0.2s;
         }
         .frame.active { border-color: #00ffff; background: #003333; color: #00ffff; }
-        .frame.dragging { opacity: 0.4; border: 2px dashed #00ffff; }
+        .frame.dragging { opacity: 0.3; }
     </style>
 </head>
 <body>
 
+<div id="refresh-note">REFRESH IF NOT UPDATED</div>
+
 <div id="ui">
-    <label>Joint</label>
+    <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Rot X</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01">
-    <label>Rot Y</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01">
-    <label>Rot Z</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01">
     
-    <div style="display:flex; gap:5px; margin-top:15px;">
-        <button onclick="mirrorSide('L')" style="background:#6a1b9a; font-size:9px;">COPY L -> R</button>
-        <button onclick="mirrorSide('R')" style="background:#6a1b9a; font-size:9px;">COPY R -> L</button>
+    <label>X - Swing (Front/Back)</label>
+    <input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    
+    <label>Y - Twist (Local Axis)</label>
+    <input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
+    
+    <label>Z - Lift (Side/Side)</label>
+    <input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    
+    <div class="btn-group">
+        <button onclick="mirrorPose('L')" style="background:#4a148c; border:none;">COPY L ➔ R</button>
+        <button onclick="mirrorPose('R')" style="background:#4a148c; border:none;">COPY R ➔ L</button>
     </div>
-    <button onclick="createNewFrame()" style="background:#2e7d32">+ NEW FRAME</button>
-    <button id="playBtn" onclick="togglePlayback()" style="background:#1565c0">PLAY ANIM</button>
+    
+    <button onclick="addFrame()" style="background:#1b5e20; border:none;">+ NEW FRAME</button>
+    <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1; border:none;">PLAY ANIMATION</button>
 </div>
 
-<div id="timeline" id="timeline-container"></div>
+<div id="timeline"></div>
 
 <script type="importmap">
     { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "controls": "https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js" } }
@@ -75,7 +93,7 @@
     let currentIdx = 0;
     let selectedBone = "Root";
     let isPlaying = false;
-    let draggedIdx = null;
+    let draggedItemIdx = null;
     const pivots = {}; 
     const clickables = [];
 
@@ -89,55 +107,58 @@
     new OrbitControls(camera, renderer.domElement);
     scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
 
-    function buildSkeleton() {
-        Object.keys(config).forEach(name => {
-            const pivot = new THREE.Group();
-            pivot.name = name;
-            pivots[name] = pivot;
-            const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color: 0x00ffff}));
-            pivot.add(dot);
+    // BUILD SKELETON
+    Object.keys(config).forEach(name => {
+        const pivot = new THREE.Group();
+        pivot.name = name;
+        // THE FIX: Set Euler order to YXZ. 
+        // This ensures Y (Twist) is calculated relative to the bone's orientation.
+        pivot.rotation.order = 'YXZ'; 
+        pivots[name] = pivot;
 
-            if (config[name].p) {
-                const parentPivot = pivots[config[name].p];
-                const pData = config[parentPivot.name];
-                pivot.position.set(pData.d[0]*pData.l, pData.d[1]*pData.l, pData.d[2]*pData.l);
-                parentPivot.add(pivot);
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(0.05), new THREE.MeshBasicMaterial({color: 0x00ffff}));
+        pivot.add(dot);
 
-                const l = config[name].l;
-                const d = config[name].d;
-                if (l > 0) {
-                    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l, 8), new THREE.MeshBasicMaterial({color: 0xffffff}));
-                    mesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
-                    if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
-                    else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
-                    pivot.add(mesh);
-                    mesh.userData.boneName = name;
-                    clickables.push(mesh);
-                    const arrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(d[0]*l/2, d[1]*l/2, d[2]*l/2), 0.4, 0xffa500);
-                    arrow.name = "arrow";
-                    arrow.visible = false;
-                    pivot.add(arrow);
-                }
-            } else { scene.add(pivot); dot.userData.boneName = name; clickables.push(dot); }
-        });
-    }
+        if (config[name].p) {
+            const parentPivot = pivots[config[name].p];
+            const pData = config[parentPivot.name];
+            pivot.position.set(pData.d[0]*pData.l, pData.d[1]*pData.l, pData.d[2]*pData.l);
+            parentPivot.add(pivot);
 
-    window.createNewFrame = () => {
-        const newPose = JSON.parse(JSON.stringify(frames[currentIdx]));
+            const { l, d } = config[name];
+            if (l > 0) {
+                const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, l, 8), new THREE.MeshBasicMaterial({color: 0xffffff}));
+                mesh.position.set(d[0]*l/2, d[1]*l/2, d[2]*l/2);
+                if(d[0] !== 0) mesh.rotation.z = Math.PI/2;
+                else if(d[2] !== 0) mesh.rotation.x = Math.PI/2;
+                pivot.add(mesh);
+                mesh.userData.boneName = name;
+                clickables.push(mesh);
+            }
+        } else {
+            scene.add(pivot);
+            dot.userData.boneName = name;
+            clickables.push(dot);
+        }
+    });
+
+    window.addFrame = () => {
+        const lastPose = frames[currentIdx] ? JSON.parse(JSON.stringify(frames[currentIdx])) : null;
+        const newPose = lastPose || Object.fromEntries(Object.keys(config).map(n => [n, [0,0,0]]));
         frames.push(newPose);
         currentIdx = frames.length - 1;
         updateApp();
     };
 
-    window.mirrorSide = (sourceSide) => {
+    window.mirrorPose = (side) => {
         const pose = frames[currentIdx];
-        const targetSide = (sourceSide === 'L') ? 'R' : 'L';
+        const targetSide = (side === 'L') ? 'R' : 'L';
         Object.keys(pose).forEach(name => {
-            if(name.startsWith(sourceSide + "_") || name.endsWith("_" + sourceSide)) {
-                let targetName = name.replace(sourceSide + "_", targetSide + "_").replace("_" + sourceSide, "_" + targetSide);
+            if(name.includes(side + "_") || name.includes("_" + side)) {
+                let targetName = name.replace(side + "_", targetSide + "_").replace("_" + side, "_" + targetSide);
                 if(pose[targetName]) {
                     const r = pose[name];
-                    // Mirror math: Flip Y and Z rotation
+                    // Standard skeletal mirroring: Invert Y and Z
                     pose[targetName] = [r[0], -r[1], -r[2]];
                 }
             }
@@ -148,21 +169,16 @@
     function updateApp() {
         const pose = frames[currentIdx];
         document.getElementById('bone-label').innerText = selectedBone;
-        ['rotX', 'rotY', 'rotZ'].forEach((id, axis) => document.getElementById(id).value = pose[selectedBone][axis]);
+        ['rotX', 'rotY', 'rotZ'].forEach((id, i) => document.getElementById(id).value = pose[selectedBone][i]);
 
         Object.keys(pivots).forEach(name => {
             const rot = pose[name];
             pivots[name].rotation.set(rot[0], rot[1], rot[2]);
             pivots[name].traverse(c => {
-                if(c.isMesh && c.geometry.type === "CylinderGeometry") c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
-                if(c.name === "arrow") c.visible = (name === selectedBone);
+                if(c.isMesh) c.material.color.set(name === selectedBone ? 0xffff00 : 0xffffff);
             });
         });
 
-        renderTimeline();
-    }
-
-    function renderTimeline() {
         const tl = document.getElementById('timeline');
         tl.innerHTML = '';
         frames.forEach((f, i) => {
@@ -170,37 +186,31 @@
             div.className = `frame ${i === currentIdx ? 'active' : ''}`;
             div.draggable = true;
             div.innerText = i + 1;
-            
             div.onclick = () => { currentIdx = i; updateApp(); };
             
-            // Reorder Events
-            div.addEventListener('dragstart', () => { draggedIdx = i; div.classList.add('dragging'); });
-            div.addEventListener('dragover', e => e.preventDefault());
-            div.addEventListener('drop', () => {
-                if(draggedIdx !== null && draggedIdx !== i) {
-                    const temp = frames.splice(draggedIdx, 1)[0];
-                    frames.splice(i, 0, temp);
-                    currentIdx = i;
-                    updateApp();
-                }
-            });
-            div.addEventListener('dragend', () => div.classList.remove('dragging'));
-            
+            div.ondragstart = () => { draggedItemIdx = i; div.classList.add('dragging'); };
+            div.ondragover = (e) => e.preventDefault();
+            div.ondrop = () => {
+                const draggedFrame = frames.splice(draggedItemIdx, 1)[0];
+                frames.splice(i, 0, draggedFrame);
+                currentIdx = i;
+                updateApp();
+            };
             tl.appendChild(div);
         });
     }
 
-    window.togglePlayback = () => {
+    window.togglePlay = () => {
         isPlaying = !isPlaying;
-        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY ANIM";
-        if(isPlaying) play();
+        document.getElementById('playBtn').innerText = isPlaying ? "STOP" : "PLAY ANIMATION";
+        if(isPlaying) playLoop();
     };
 
-    function play() {
+    function playLoop() {
         if(!isPlaying) return;
         currentIdx = (currentIdx + 1) % frames.length;
         updateApp();
-        setTimeout(play, 200);
+        setTimeout(playLoop, 200);
     }
 
     ['rotX', 'rotY', 'rotZ'].forEach((id, axis) => {
@@ -218,9 +228,7 @@
         if (hit) { selectedBone = hit.object.userData.boneName; updateApp(); }
     });
 
-    buildSkeleton();
-    frames.push(Object.fromEntries(Object.keys(config).map(n => [n, [0,0,0]])));
-    updateApp();
+    window.addFrame(); // Start with one frame
     function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
     animate();
 </script>
