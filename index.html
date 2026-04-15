@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: True Local Axis</title>
+    <title>3D Rig: Anatomical Planes</title>
     <style>
         body { margin: 0; background: #111; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
         #refresh-note { position: absolute; top: 5px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; letter-spacing: 1px; z-index: 1000; pointer-events: none; }
@@ -24,8 +24,8 @@
 <div id="ui">
     <label>Active Joint</label>
     <span id="bone-label">Root</span>
-    <label>Swing X (Flat Front/Back)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
-    <label>Swing Z (Flat Side/Side)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Front-Back (Chest Plane)</label><input type="range" id="rotX" min="-3.14" max="3.14" step="0.01" value="0">
+    <label>Side-Lift (Jumping Jack)</label><input type="range" id="rotZ" min="-3.14" max="3.14" step="0.01" value="0">
     <label>Local Twist (Screw)</label><input type="range" id="rotY" min="-3.14" max="3.14" step="0.01" value="0">
     
     <div class="btn-group">
@@ -126,7 +126,7 @@
                 const targetName = name.replace(`_${from}`, `_${to}`);
                 if (pose[targetName]) {
                     const r = pose[name];
-                    // Standard Mirror: Flip Y (Twist) and Z (Lift)
+                    // Mirror X-swing, Flip Twist/Lift for symmetry
                     pose[targetName] = [r[0], -r[1], -r[2]];
                 }
             }
@@ -145,15 +145,16 @@
             
             pivot.quaternion.set(0, 0, 0, 1);
             
-            // X-AXIS: Rotate around the world X (Front/Back Swing)
-            const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), x);
-            pivot.quaternion.multiply(qX);
-
-            // Z-AXIS: Rotate around the world Z (Side Lift)
+            // 1. Apply Lift (Z) - Standard Jumping Jack motion
             const qZ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z);
             pivot.quaternion.multiply(qZ);
+
+            // 2. Apply Swing (X) - Now relative to the new lifted position
+            // We use World Y as the axis here so the swing is always "forward/back" relative to chest
+            const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), x);
+            pivot.quaternion.multiply(qX);
             
-            // Y-AXIS (TWIST): Rotate around the bone's own local vector
+            // 3. Apply Twist (Y) - Local to the bone direction
             const boneDir = new THREE.Vector3().fromArray(config[name].d).normalize();
             const qTwist = new THREE.Quaternion().setFromAxisAngle(boneDir, y);
             pivot.quaternion.multiply(qTwist);
