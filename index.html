@@ -1,9 +1,8 @@
-html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Normals & Export Edition</title>
+    <title>3D Rig: Twist Normals Edition</title>
     <style>
         body { margin: 0; background: #050505; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; user-select: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(15, 15, 15, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -110,17 +109,12 @@ html_content = """
         pivots[name] = pivot;
         const isRoot = name === "Root";
         
-        // Gizmo / Bone visual
         let geom = isRoot ? new THREE.CylinderGeometry(0.25, 0.25, 0.02, 32) : new THREE.SphereGeometry(0.05);
         let mat = new THREE.MeshBasicMaterial({color: 0xffffff});
         const dot = new THREE.Mesh(geom, mat);
         pivot.add(dot);
         dot.userData.boneName = name;
         clickables.push(dot);
-
-        // --- THE BONE NORMALS (Local Axes) ---
-        const axesHelper = new THREE.AxesHelper(0.3);
-        pivot.add(axesHelper);
 
         if (isRoot) scene.add(pivot);
         else {
@@ -133,6 +127,7 @@ html_content = """
             }
             parentPivot.add(pivot);
             if (cfg.l > 0) {
+                // The Bone Cylinder
                 const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, cfg.l, 6), new THREE.MeshBasicMaterial({color: 0xcccccc}));
                 mesh.position.set(cfg.d[0]*cfg.l/2, cfg.d[1]*cfg.l/2, cfg.d[2]*cfg.l/2);
                 if(cfg.d[0] !== 0) mesh.rotation.z = Math.PI/2;
@@ -140,6 +135,25 @@ html_content = """
                 pivot.add(mesh);
                 mesh.userData.boneName = name;
                 clickables.push(mesh);
+
+                // --- TWIST NORMAL FIN ---
+                const finGeom = new THREE.BoxGeometry(0.01, 0.12, 0.04);
+                const finMat = new THREE.MeshBasicMaterial({color: 0x00ffff});
+                const fin = new THREE.Mesh(finGeom, finMat);
+                
+                // Position fin at midpoint of the bone
+                fin.position.copy(mesh.position);
+                
+                // Set Default Facing
+                if (name.includes("Foot")) {
+                    // Foot normal should face UP
+                    fin.position.y += 0.05; 
+                } else {
+                    // Arms, Hands, Thighs face FORWARD (+Z)
+                    fin.position.z += 0.05;
+                    fin.rotation.x = Math.PI/2;
+                }
+                pivot.add(fin);
             }
         }
     });
@@ -201,6 +215,7 @@ html_content = """
             pivot.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(boneDir.length() === 0 || name === "Root" ? new THREE.Vector3(0,1,0) : boneDir, y));
             
             pivot.traverse(c => { if(c.isMesh) {
+                if (c.geometry.type === "BoxGeometry") return; // Don't recolor the Fins
                 if (name === selectedBone) c.material.color.set(0xffff00);
                 else if (name === "Root") c.material.color.set(0xaa00ff);
                 else if (name === "Pelvis" || name === "Spine") c.material.color.set(0x00ffff);
@@ -275,7 +290,3 @@ html_content = """
 </script>
 </body>
 </html>
-"""
-
-with open("rig_tool_v5.html", "w") as f:
-    f.write(html_content)
