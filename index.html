@@ -1,8 +1,9 @@
+html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>3D Rig: Draggable Reorder Timeline</title>
+    <title>3D Rig: Export Edition</title>
     <style>
         body { margin: 0; background: #050505; color: white; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; user-select: none; }
         #ui { position: absolute; right: 10px; top: 10px; width: 220px; background: rgba(15, 15, 15, 0.95); padding: 15px; border-radius: 8px; border: 1px solid #444; z-index: 100; }
@@ -53,6 +54,7 @@
     
     <button onclick="addFrame()" style="background:#1b5e20; margin-top:10px; border:none;">+ NEW FRAME</button>
     <button id="playBtn" onclick="togglePlay()" style="background:#0d47a1; border:none; margin-top:5px;">PLAY</button>
+    <button onclick="exportJSON()" style="background:#f9a825; border:none; margin-top:5px; color:black;">EXPORT JSON</button>
 </div>
 
 <div id="timeline-container">
@@ -177,6 +179,16 @@
         updateApp();
     };
 
+    window.exportJSON = () => {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(frames, null, 2));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "rig_animation.json");
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+    };
+
     function updateApp() {
         const pose = frames[currentIdx];
         if(!pose) return;
@@ -201,7 +213,6 @@
             }});
         });
 
-        // Timeline UI with Drag and Drop
         const list = document.getElementById('frames-list');
         list.innerHTML = '';
         frames.forEach((f, i) => {
@@ -210,7 +221,6 @@
             d.innerText = i + 1;
             d.setAttribute('draggable', true);
             
-            // Delete btn
             const del = document.createElement('button');
             del.className = 'del-btn';
             del.innerText = '×';
@@ -219,7 +229,6 @@
 
             d.onclick = () => { currentIdx = i; updateApp(); };
 
-            // Drag Events
             d.ondragstart = () => { draggedFrameIdx = i; };
             d.ondragover = (e) => { e.preventDefault(); d.classList.add('drag-over'); };
             d.ondragleave = () => { d.classList.remove('drag-over'); };
@@ -279,3 +288,7 @@
 </script>
 </body>
 </html>
+"""
+
+with open("rig_export_tool.html", "w") as f:
+    f.write(html_content)
